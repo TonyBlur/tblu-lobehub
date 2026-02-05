@@ -2,6 +2,7 @@ import { ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
 import { isDesktop } from '@lobechat/const';
 import { Avatar } from '@lobehub/ui';
 import {
+  Blocks,
   Brain,
   BrainCircuit,
   ChartColumnBigIcon,
@@ -19,17 +20,18 @@ import {
   Mic2,
   PaletteIcon,
   PieChart,
-  ShieldCheck,
   Sparkles,
   UserCircle,
 } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useElectronStore } from '@/store/electron';
+import { electronSyncSelectors } from '@/store/electron/selectors';
 import { SettingsTabs } from '@/store/global/initialState';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 import { useUserStore } from '@/store/user';
-import { authSelectors, userProfileSelectors } from '@/store/user/slices/auth/selectors';
+import { userProfileSelectors } from '@/store/user/slices/auth/selectors';
 
 export enum SettingsGroupKey {
   AIConfig = 'ai-config',
@@ -58,25 +60,30 @@ export const useCategory = () => {
   const mobile = useServerConfigStore((s) => s.isMobile);
   const { enableSTT, hideDocs, showAiImage, showApiKeyManage } =
     useServerConfigStore(featureFlagsSelectors);
-  const [isLoginWithClerk, avatar, username] = useUserStore((s) => [
-    authSelectors.isLoginWithClerk(s),
+  const [avatar, username] = useUserStore((s) => [
     userProfileSelectors.userAvatar(s),
     userProfileSelectors.nickName(s),
   ]);
+  const remoteServerUrl = useElectronStore(electronSyncSelectors.remoteServerUrl);
+
+  // Process avatar URL for desktop environment
+  const avatarUrl = useMemo(() => {
+    if (!avatar) return undefined;
+    if (isDesktop && avatar.startsWith('/') && remoteServerUrl) {
+      return remoteServerUrl + avatar;
+    }
+    return avatar;
+  }, [avatar, remoteServerUrl]);
+
   const categoryGroups: CategoryGroup[] = useMemo(() => {
     const groups: CategoryGroup[] = [];
 
     // 个人资料组 - Profile 相关设置
     const profileItems: CategoryItem[] = [
       {
-        icon: avatar ? <Avatar avatar={avatar} shape={'square'} size={26} /> : UserCircle,
+        icon: avatarUrl ? <Avatar avatar={avatarUrl} shape={'square'} size={26} /> : UserCircle,
         key: SettingsTabs.Profile,
         label: username ? username : tAuth('tab.profile'),
-      },
-      isLoginWithClerk && {
-        icon: ShieldCheck,
-        key: SettingsTabs.Security,
-        label: tAuth('tab.security'),
       },
       {
         icon: ChartColumnBigIcon,
@@ -170,6 +177,11 @@ export const useCategory = () => {
         label: t('tab.agent'),
       },
       {
+        icon: Blocks,
+        key: SettingsTabs.Skill,
+        label: t('tab.skill'),
+      },
+      {
         icon: BrainCircuit,
         key: SettingsTabs.Memory,
         label: t('tab.memory'),
@@ -218,18 +230,7 @@ export const useCategory = () => {
     });
 
     return groups;
-  }, [
-    t,
-    tAuth,
-    enableSTT,
-    hideDocs,
-    mobile,
-    showAiImage,
-    showApiKeyManage,
-    isLoginWithClerk,
-    avatar,
-    username,
-  ]);
+  }, [t, tAuth, enableSTT, hideDocs, mobile, showAiImage, showApiKeyManage, avatarUrl, username]);
 
   return categoryGroups;
 };

@@ -4,7 +4,9 @@ import {
   AgentRuntime,
   type AgentRuntimeContext,
   type AgentState,
+  type Cost,
   GeneralChatAgent,
+  type Usage,
   computeStepContext,
 } from '@lobechat/agent-runtime';
 import { PageAgentIdentifier } from '@lobechat/builtin-tool-page-agent';
@@ -26,7 +28,7 @@ import { type StateCreator } from 'zustand/vanilla';
 
 import { createAgentToolsEngine } from '@/helpers/toolEngineering';
 import { chatService } from '@/services/chat';
-import { resolveAgentConfig } from '@/services/chat/mecha';
+import { type ResolvedAgentConfig, resolveAgentConfig } from '@/services/chat/mecha';
 import { messageService } from '@/services/message';
 import { createAgentExecutors } from '@/store/chat/agents/createAgentExecutors';
 import { type ChatStore } from '@/store/chat/store';
@@ -58,6 +60,11 @@ export interface StreamingExecutorAction {
      */
     agentId?: string;
     /**
+     * Whether to disable tools for this agent execution
+     * When true, agent will respond without calling any tools
+     */
+    disableTools?: boolean;
+    /**
      * Explicit topicId for this execution (avoids using global activeTopicId)
      */
     topicId?: string | null;
@@ -70,9 +77,15 @@ export interface StreamingExecutorAction {
      * Used to get Agent config (model, provider, plugins) instead of agentId
      */
     subAgentId?: string;
+    /**
+     * Whether this is a sub-task execution (disables lobe-gtd tools to prevent nested sub-tasks)
+     */
+    isSubTask?: boolean;
   }) => {
     state: AgentState;
     context: AgentRuntimeContext;
+    /** Resolved agent config with isSubTask filtering applied */
+    agentConfig: ResolvedAgentConfig;
   };
   /**
    * Retrieves an AI-generated chat message from the backend service with streaming
@@ -83,7 +96,8 @@ export interface StreamingExecutorAction {
     model: string;
     provider: string;
     operationId?: string;
-    agentConfig?: any;
+    /** Pre-resolved agent config (from internal_createAgentState) with isSubTask filtering applied */
+    agentConfig: ResolvedAgentConfig;
     traceId?: string;
     /** Initial context for page editor (captured at operation start) */
     initialContext?: RuntimeInitialContext;
@@ -109,6 +123,11 @@ export interface StreamingExecutorAction {
      */
     context: ConversationContext;
     /**
+     * Whether to disable tools for this agent execution
+     * When true, agent will respond without calling any tools
+     */
+    disableTools?: boolean;
+    /**
      * Initial agent runtime context (for resuming execution from a specific phase)
      */
     initialContext?: AgentRuntimeContext;
@@ -130,7 +149,11 @@ export interface StreamingExecutorAction {
      */
     parentOperationId?: string;
     skipCreateFirstMessage?: boolean;
-  }) => Promise<void>;
+    /**
+     * Whether this is a sub-task execution (disables lobe-gtd tools to prevent nested sub-tasks)
+     */
+    isSubTask?: boolean;
+  }) => Promise<{ cost?: Cost; usage?: Usage } | void>;
 }
 
 export const streamingExecutor: StateCreator<
@@ -143,16 +166,19 @@ export const streamingExecutor: StateCreator<
     messages,
     parentMessageId,
     agentId: paramAgentId,
+    disableTools,
     topicId: paramTopicId,
     threadId,
     initialState,
     initialContext,
     operationId,
     subAgentId: paramSubAgentId,
+    isSubTask,
   }) => {
     // Use provided agentId/topicId or fallback to global state
+    // Note: Use || instead of ?? to also fallback when paramAgentId is empty string
     const { activeAgentId, activeTopicId } = get();
-    const agentId = paramAgentId ?? activeAgentId;
+    const agentId = paramAgentId || activeAgentId;
     const topicId = paramTopicId !== undefined ? paramTopicId : activeTopicId;
 
     // For group orchestration scenarios:
@@ -160,31 +186,63 @@ export const streamingExecutor: StateCreator<
     // - agentId is used for session ID (message storage location)
     const effectiveAgentId = paramSubAgentId || agentId;
 
-    // Get scope from operation context if available
+    // Get scope and groupId from operation context if available
     const operation = operationId ? get().operations[operationId] : undefined;
     const scope = operation?.context.scope;
-
-    console.log('[internal_createAgentState] Operation scope:', { operationId, scope });
+    const groupId = operation?.context.groupId;
 
     // Resolve agent config with builtin agent runtime config merged
     // This ensures runtime plugins (e.g., 'lobe-agent-builder' for Agent Builder) are included
-    const { agentConfig: agentConfigData, plugins: pluginIds } = resolveAgentConfig({
+    // - isSubTask: filters out lobe-gtd tools to prevent nested sub-task creation
+    // - disableTools: clears all plugins for broadcast scenarios
+    const agentConfig = resolveAgentConfig({
       agentId: effectiveAgentId || '',
+      disableTools, // Clear plugins for broadcast scenarios
+      groupId, // Pass groupId for supervisor detection
+      isSubTask, // Filter out lobe-gtd in sub-task context
       scope, // Pass scope from operation context
     });
+    const { agentConfig: agentConfigData, plugins: pluginIds } = agentConfig;
 
-    // Get tools manifest map
+    log(
+      '[internal_createAgentState] resolved plugins=%o, isSubTask=%s, disableTools=%s',
+      pluginIds,
+      isSubTask,
+      disableTools,
+    );
+
+    // Generate tools using ToolsEngine (centralized here, passed to chatService via agentConfig)
+    // When disableTools is true (broadcast mode), skipDefaultTools prevents default tools from being added
     const toolsEngine = createAgentToolsEngine({
       model: agentConfigData.model,
       provider: agentConfigData.provider!,
     });
-    const { enabledToolIds } = toolsEngine.generateToolsDetailed({
+
+    const toolsDetailed = toolsEngine.generateToolsDetailed({
       model: agentConfigData.model,
       provider: agentConfigData.provider!,
+      skipDefaultTools: disableTools,
       toolIds: pluginIds,
     });
+
+    const enabledToolIds = toolsDetailed.enabledToolIds;
+    // Use enabledManifests directly to avoid getEnabledPluginManifests adding default tools again
     const toolManifestMap = Object.fromEntries(
-      toolsEngine.getEnabledPluginManifests(enabledToolIds).entries(),
+      toolsDetailed.enabledManifests.map((manifest) => [manifest.identifier, manifest]),
+    );
+
+    // Merge tools generation result into agentConfig for chatService to use
+    const agentConfigWithTools = {
+      ...agentConfig,
+      enabledManifests: toolsDetailed.enabledManifests,
+      enabledToolIds,
+      tools: toolsDetailed.tools,
+    };
+
+    log(
+      '[internal_createAgentState] toolManifestMap keys=%o, count=%d',
+      Object.keys(toolManifestMap),
+      Object.keys(toolManifestMap).length,
     );
 
     // Get user intervention config
@@ -194,18 +252,29 @@ export const streamingExecutor: StateCreator<
       allowList: toolInterventionSelectors.allowList(userStore),
     };
 
+    // Build modelRuntimeConfig for compression and other runtime features
+    const modelRuntimeConfig = {
+      compressionModel: {
+        model: agentConfigData.model,
+        provider: agentConfigData.provider!,
+      },
+      model: agentConfigData.model,
+      provider: agentConfigData.provider!,
+    };
+
     // Create initial state or use provided state
     const state =
       initialState ||
       AgentRuntime.createInitialState({
-        operationId: operationId ?? agentId,
-        messages,
         maxSteps: 400,
+        messages,
         metadata: {
           sessionId: agentId,
-          topicId,
           threadId,
+          topicId,
         },
+        modelRuntimeConfig,
+        operationId: operationId ?? agentId,
         toolManifestMap,
         userInterventionConfig,
       });
@@ -258,7 +327,7 @@ export const streamingExecutor: StateCreator<
       initialContext: runtimeInitialContext,
     };
 
-    return { state, context };
+    return { agentConfig: agentConfigWithTools, context, state };
   },
 
   internal_fetchAIChatMessage: async ({
@@ -294,13 +363,21 @@ export const streamingExecutor: StateCreator<
         log('[internal_fetchAIChatMessage] ERROR: Operation not found: %s', operationId);
         throw new Error(`Operation not found: ${operationId}`);
       }
-      agentId = operation.context.agentId!;
-      subAgentId = operation.context.subAgentId;
       topicId = operation.context.topicId;
       threadId = operation.context.threadId ?? undefined;
       groupId = operation.context.groupId;
       scope = operation.context.scope;
+      subAgentId = operation.context.subAgentId;
       abortController = operation.abortController; // 👈 Use operation's abortController
+
+      // In group orchestration scenarios (has groupId), subAgentId is the actual responding agent
+      // Use it for context injection instead of the session agentId
+      if (groupId && subAgentId) {
+        agentId = subAgentId;
+      } else {
+        agentId = operation.context.agentId!;
+      }
+
       log(
         '[internal_fetchAIChatMessage] get context from operation %s: agentId=%s, subAgentId=%s, topicId=%s, groupId=%s, aborted=%s',
         operationId,
@@ -331,22 +408,10 @@ export const streamingExecutor: StateCreator<
     // Create base context for child operations and message queries
     const fetchContext = { agentId, topicId, threadId, groupId, scope };
 
-    // For group orchestration scenarios:
-    // - subAgentId is used for agent config retrieval (model, provider, plugins)
-    // - agentId is used for session ID (message storage location)
-    const effectiveAgentId = subAgentId || agentId;
-
-    // Resolve agent config with params adjusted based on chatConfig
-    // If agentConfig is passed in, use it directly (it's already resolved)
-    // Otherwise, resolve from mecha layer which handles:
-    // - Builtin agent runtime config merging
-    // - max_tokens/reasoning_effort based on chatConfig settings
-    const resolved = resolveAgentConfig({
-      agentId: effectiveAgentId,
-      scope, // scope is already available from line 329
-    });
-    const finalAgentConfig = agentConfig || resolved.agentConfig;
-    const chatConfig = resolved.chatConfig;
+    // Use pre-resolved agent config (from internal_createAgentState)
+    // This ensures isSubTask filtering and other runtime modifications are preserved
+    const { agentConfig: agentConfigData, chatConfig, plugins: pluginIds } = agentConfig;
+    log('[internal_fetchAIChatMessage] using pre-resolved config, plugins=%o', pluginIds);
 
     let finalUsage: ModelUsage | undefined;
     let finalToolCalls: MessageToolCall[] | undefined;
@@ -434,18 +499,17 @@ export const streamingExecutor: StateCreator<
     await chatService.createAssistantMessageStream({
       abortController,
       params: {
-        // Use effectiveAgentId for agent config resolution (system role, tools, etc.)
-        // In group orchestration: subAgentId for the actual speaking agent
-        // In normal chat: agentId for the main agent
-        agentId: effectiveAgentId || undefined,
+        // agentId is used for context, not for config resolution (config is pre-resolved)
+        agentId: agentId || undefined,
         groupId,
         messages,
         model,
         provider,
-        scope, // Pass scope to chat service for page-agent injection
-        topicId, // Pass topicId for GTD context injection
-        ...finalAgentConfig.params,
-        plugins: finalAgentConfig.plugins,
+        // Pass pre-resolved config to avoid duplicate resolveAgentConfig calls
+        // This ensures isSubTask filtering and other runtime modifications are preserved
+        resolvedAgentConfig: agentConfig,
+        topicId: topicId ?? undefined, // Pass topicId for GTD context injection
+        ...agentConfigData.params,
       },
       historySummary: historySummary?.content,
       // Pass page editor context from agent runtime
@@ -541,7 +605,14 @@ export const streamingExecutor: StateCreator<
   },
 
   internal_execAgentRuntime: async (params) => {
-    const { messages: originalMessages, parentMessageId, parentMessageType, context } = params;
+    const {
+      disableTools,
+      messages: originalMessages,
+      parentMessageId,
+      parentMessageType,
+      context,
+      isSubTask,
+    } = params;
 
     // Extract values from context
     const { agentId, topicId, threadId, subAgentId, groupId } = context;
@@ -575,7 +646,7 @@ export const streamingExecutor: StateCreator<
     }
 
     log(
-      '[internal_execAgentRuntime] start, operationId: %s, agentId: %s, subAgentId: %s, effectiveAgentId: %s, topicId: %s, messageKey: %s, parentMessageId: %s, parentMessageType: %s, messages count: %d',
+      '[internal_execAgentRuntime] start, operationId: %s, agentId: %s, subAgentId: %s, effectiveAgentId: %s, topicId: %s, messageKey: %s, parentMessageId: %s, parentMessageType: %s, messages count: %d, disableTools: %s',
       operationId,
       agentId,
       subAgentId,
@@ -585,50 +656,62 @@ export const streamingExecutor: StateCreator<
       parentMessageId,
       parentMessageType,
       originalMessages.length,
+      disableTools,
     );
 
     // Create a new array to avoid modifying the original messages
     let messages = [...originalMessages];
 
-    // Use effectiveAgentId to get agent config (subAgentId in group orchestration, agentId otherwise)
-    // resolveAgentConfig handles:
-    // - Builtin agent runtime config merging
-    // - max_tokens/reasoning_effort based on chatConfig settings
-    const { agentConfig: agentConfigData, chatConfig } = resolveAgentConfig({
-      agentId: effectiveAgentId || '',
-      scope: context.scope, // Pass scope from context parameter (available at line 883)
+    // ===========================================
+    // Step 1: Create Agent State (resolves config once)
+    // ===========================================
+    // agentConfig contains isSubTask filtering and is passed to callLLM executor
+    const {
+      state: initialAgentState,
+      context: initialAgentContext,
+      agentConfig,
+    } = get().internal_createAgentState({
+      messages,
+      parentMessageId: params.parentMessageId,
+      agentId,
+      disableTools,
+      topicId,
+      threadId: threadId ?? undefined,
+      initialState: params.initialState,
+      initialContext: params.initialContext,
+      operationId,
+      subAgentId, // Pass subAgentId for agent config retrieval
+      isSubTask, // Pass isSubTask to filter out lobe-gtd tools in sub-task context
     });
 
-    // Use agent config from agentId
+    // Use model/provider from resolved agentConfig
+    const { agentConfig: agentConfigData } = agentConfig;
     const model = agentConfigData.model;
     const provider = agentConfigData.provider;
 
-    // ===========================================
-    // Step 1: Knowledge Base Tool Integration
-    // ===========================================
-    // RAG retrieval is now handled by the Knowledge Base Tool
-    // The AI will decide when to call searchKnowledgeBase and readKnowledge tools
-    // based on the conversation context and available knowledge bases
-
-    // TODO: Implement selected files full-text injection if needed
-    // User-selected files should be handled differently from knowledge base files
-
+    const modelRuntimeConfig = {
+      model,
+      provider: provider!,
+      // TODO: Support dedicated compression model from chatConfig.compressionModelId
+      compressionModel: { model, provider: provider! },
+    };
     // ===========================================
     // Step 2: Create and Execute Agent Runtime
     // ===========================================
-    log('[internal_execAgentRuntime] Creating agent runtime');
+    log('[internal_execAgentRuntime] Creating agent runtime with config', modelRuntimeConfig);
 
     const agent = new GeneralChatAgent({
       agentConfig: { maxSteps: 1000 },
-      operationId: `${messageKey}/${params.parentMessageId}`,
-      modelRuntimeConfig: {
-        model,
-        provider: provider!,
+      compressionConfig: {
+        enabled: agentConfigData.chatConfig?.enableContextCompression ?? true, // Default to enabled
       },
+      operationId: `${messageKey}/${params.parentMessageId}`,
+      modelRuntimeConfig,
     });
 
     const runtime = new AgentRuntime(agent, {
       executors: createAgentExecutors({
+        agentConfig, // Pass pre-resolved config to callLLM executor
         get,
         messageKey,
         operationId,
@@ -645,20 +728,6 @@ export const streamingExecutor: StateCreator<
       },
       operationId,
     });
-
-    // Create agent state and context with user intervention config
-    const { state: initialAgentState, context: initialAgentContext } =
-      get().internal_createAgentState({
-        messages,
-        parentMessageId: params.parentMessageId,
-        agentId,
-        topicId,
-        threadId: threadId ?? undefined,
-        initialState: params.initialState,
-        initialContext: params.initialContext,
-        operationId,
-        subAgentId, // Pass subAgentId for agent config retrieval
-      });
 
     let state = initialAgentState;
     let nextContext = initialAgentContext;
@@ -713,21 +782,38 @@ export const streamingExecutor: StateCreator<
       nextContext = { ...nextContext, stepContext };
 
       log(
-        '[internal_execAgentRuntime][step-%d]: phase=%s, status=%s, stepContext=%O',
+        '[internal_execAgentRuntime][step-%d]: phase=%s, status=%s, state.messages=%d, dbMessagesMap[%s]=%d, stepContext=%O',
         stepCount,
         nextContext.phase,
         state.status,
+        state.messages.length,
+        messageKey,
+        currentDBMessages.length,
         stepContext,
       );
 
       const result = await runtime.step(state, nextContext);
 
       log(
-        '[internal_execAgentRuntime] Step %d completed, events: %d, newStatus=%s',
+        '[internal_execAgentRuntime] Step %d completed, events: %d, newStatus=%s, newState.messages=%d',
         stepCount,
         result.events.length,
         result.newState.status,
+        result.newState.messages.length,
       );
+
+      // After parallel tool batch completes, refresh messages to ensure all tool results are synced
+      // This fixes the race condition where each tool's replaceMessages may overwrite others
+      // REMEMBER: There is no test for it (too hard to add), if you want to change it , ask @arvinxx first
+      if (
+        result.nextContext?.phase &&
+        ['tasks_batch_result', 'tools_batch_result'].includes(result.nextContext?.phase)
+      ) {
+        log(
+          `[internal_execAgentRuntime] ${result.nextContext?.phase} completed, refreshing messages to sync state`,
+        );
+        await get().refreshMessages(context);
+      }
 
       // Handle completion and error events
       for (const event of result.events) {
@@ -866,21 +952,7 @@ export const streamingExecutor: StateCreator<
       }
     }
 
-    // Summary history if context messages is larger than historyCount
-    const historyCount = chatConfig.historyCount ?? 0;
-
-    if (
-      chatConfig.enableHistoryCount &&
-      chatConfig.enableCompressHistory &&
-      messages.length > historyCount
-    ) {
-      // after generation: [u1,a1,u2,a2,u3,a3]
-      // but the `messages` is still: [u1,a1,u2,a2,u3]
-      // So if historyCount=2, we need to summary [u1,a1,u2,a2]
-      // because user find UI is [u1,a1,u2,a2 | u3,a3]
-      const historyMessages = messages.slice(0, -historyCount + 1);
-
-      await get().internal_summaryHistory(historyMessages);
-    }
+    // Return usage and cost data for caller to use
+    return { cost: state.cost, usage: state.usage };
   },
 });

@@ -88,7 +88,8 @@ export const createFileSlice: StateCreator<
       let fileItem: FileListItem | undefined = undefined;
 
       try {
-        fileItem = await fileService.getKnowledgeItem(id);
+        const result = await fileService.getKnowledgeItem(id);
+        fileItem = result ?? undefined;
       } catch (e) {
         console.error('getFileItem Error:', e);
         continue;
@@ -168,7 +169,7 @@ export const createFileSlice: StateCreator<
       if (isChunkingUnsupported(file.type)) return;
 
       const data = await ragService.parseFileContent(fileResult.id);
-      console.log(data);
+      console.log('parseFileContent data:', data);
     });
 
     await Promise.all(pools);

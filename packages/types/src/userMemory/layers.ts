@@ -10,19 +10,53 @@ export enum UserMemoryContextObjectType {
   Knowledge = 'knowledge',
   Other = 'other',
   Person = 'person',
-  Place = 'place'
+  Place = 'place',
 }
+export const CONTEXT_OBJECT_TYPES = Object.values(UserMemoryContextObjectType);
 
 export enum UserMemoryContextSubjectType {
   Item = 'item',
   Other = 'other',
   Person = 'person',
-  Pet = 'pet'
+  Pet = 'pet',
+}
+export const CONTEXT_SUBJECT_TYPES = Object.values(UserMemoryContextSubjectType);
+
+export interface UserMemoryAssociatedLocation {
+  address?: string | null;
+  extra?: Record<string, unknown> | null;
+  name?: string | null;
+  tags?: string[] | null;
+  type?: string | null;
+}
+
+export interface UserMemoryAssociatedObject {
+  extra?: Record<string, unknown> | null;
+  name?: string;
+  type?: string | null;
+}
+
+export interface UserMemoryAssociatedSubject {
+  extra?: Record<string, unknown> | null;
+  name?: string;
+  type?: string | null;
 }
 
 export interface UserMemoryContext extends UserMemoryTimestamps {
-  associatedObjects: { extra?: Record<string, unknown> | null, name?: string, type?: UserMemoryContextObjectType }[] | null;
-  associatedSubjects: { extra?: Record<string, unknown> | null, name?: string, type?: UserMemoryContextSubjectType }[] | null;
+  associatedObjects:
+    | {
+        extra?: Record<string, unknown> | null;
+        name?: string;
+        type?: UserMemoryContextObjectType;
+      }[]
+    | null;
+  associatedSubjects:
+    | {
+        extra?: Record<string, unknown> | null;
+        name?: string;
+        type?: UserMemoryContextSubjectType;
+      }[]
+    | null;
   currentStatus: string | null;
   description: string | null;
   descriptionVector: number[] | null;
@@ -97,7 +131,36 @@ export type UserMemoryPreferenceWithoutVectors = Omit<
   'conclusionDirectivesVector'
 >;
 
-export type UserMemoryPreferencesListItem = Omit<
-  UserMemoryPreferenceWithoutVectors,
-  'suggestions'
+export type UserMemoryPreferencesListItem = Omit<UserMemoryPreferenceWithoutVectors, 'suggestions'>;
+
+export interface UserMemoryActivity extends UserMemoryTimestamps {
+  associatedLocations: UserMemoryAssociatedLocation[] | null;
+  associatedObjects: UserMemoryAssociatedObject[] | null;
+  associatedSubjects: UserMemoryAssociatedSubject[] | null;
+  endsAt: Date | null;
+  feedback: string | null;
+  feedbackVector: number[] | null;
+  id: string;
+  metadata: Record<string, unknown> | null;
+  narrative: string | null;
+  narrativeVector: number[] | null;
+  notes: string | null;
+  startsAt: Date | null;
+  status: string | null;
+  tags: string[] | null;
+  timezone: string | null;
+  type: string | null;
+  userId: string | null;
+  userMemoryId: string | null;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export type UserMemoryActivityWithoutVectors = Omit<
+  UserMemoryActivity,
+  'narrativeVector' | 'feedbackVector'
+>;
+
+export type UserMemoryActivitiesListItem = Omit<
+  UserMemoryActivityWithoutVectors,
+  'feedback' | 'narrative' | 'notes'
 >;

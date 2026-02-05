@@ -1,5 +1,5 @@
 import { AgentBuilderIdentifier } from '@lobechat/builtin-tool-agent-builder';
-import { KLAVIS_SERVER_TYPES } from '@lobechat/const';
+import { KLAVIS_SERVER_TYPES, LOBEHUB_SKILL_PROVIDERS } from '@lobechat/const';
 import type { OfficialToolItem } from '@lobechat/context-engine';
 import {
   type FetchSSEOptions,
@@ -10,7 +10,6 @@ import {
 import { AgentRuntimeError, type ChatCompletionErrorPayload } from '@lobechat/model-runtime';
 import {
   ChatErrorType,
-  type MessageMapScope,
   type RuntimeInitialContext,
   type RuntimeStepContext,
   type TracePayload,
@@ -24,10 +23,8 @@ import {
 import { merge } from 'es-toolkit/compat';
 import { ModelProvider } from 'model-bank';
 
-import { enableAuth } from '@/const/auth';
 import { DEFAULT_AGENT_CONFIG } from '@/const/settings';
 import { getSearchConfig } from '@/helpers/getSearchConfig';
-import { createAgentToolsEngine, createToolsEngine } from '@/helpers/toolEngineering';
 import { getAgentStoreState } from '@/store/agent';
 import {
   agentByIdSelectors,
@@ -41,6 +38,7 @@ import { getToolStoreState } from '@/store/tool';
 import {
   builtinToolSelectors,
   klavisStoreSelectors,
+  lobehubSkillStoreSelectors,
   pluginSelectors,
 } from '@/store/tool/selectors';
 import { getUserStoreState, useUserStore } from '@/store/user';
@@ -57,10 +55,10 @@ import { createHeaderWithAuth } from '../_auth';
 import { API_ENDPOINTS } from '../_url';
 import { findDeploymentName, isEnableFetchOnClient, resolveRuntimeProvider } from './helper';
 import {
+  type ResolvedAgentConfig,
   contextEngineering,
   getTargetAgentId,
   initializeWithClientStore,
-  resolveAgentConfig,
   resolveModelExtendParams,
 } from './mecha';
 import { type FetchOptions } from './types';
@@ -69,7 +67,11 @@ interface GetChatCompletionPayload extends Partial<Omit<ChatStreamPayload, 'mess
   agentId?: string;
   groupId?: string;
   messages: UIChatMessage[];
-  scope?: MessageMapScope;
+  /**
+   * Pre-resolved agent config from AgentRuntime layer.
+   * Required to ensure config consistency and proper isSubTask filtering.
+   */
+  resolvedAgentConfig: ResolvedAgentConfig;
   topicId?: string;
 }
 
@@ -106,12 +108,11 @@ interface CreateAssistantMessageStream extends FetchSSEOptions {
 class ChatService {
   createAssistantMessage = async (
     {
-      plugins: enabledPlugins,
       messages,
       agentId,
       groupId,
-      scope,
       topicId,
+      resolvedAgentConfig,
       ...params
     }: GetChatCompletionPayload,
     options?: FetchOptions,
@@ -125,37 +126,24 @@ class ChatService {
       params,
     );
 
-    // =================== 1. resolve agent config =================== //
+    // =================== 1. use pre-resolved agent config =================== //
+    // Config is resolved in AgentRuntime layer (internal_createAgentState)
+    // which handles isSubTask filtering, disableTools, and tools generation
 
     const targetAgentId = getTargetAgentId(agentId);
 
-    // Resolve agent config with builtin agent runtime config merged
-    // plugins is already merged (runtime plugins > agent config plugins)
+    // Tools are pre-generated in internal_createAgentState and passed via resolvedAgentConfig
+    // This avoids duplicate toolsEngine creation and ensures disableTools is properly handled
     const {
       agentConfig,
       chatConfig,
-      plugins: pluginIds,
-    } = resolveAgentConfig({
-      agentId: targetAgentId,
-      model: payload.model,
-      plugins: enabledPlugins,
-      provider: payload.provider,
-      scope, // Pass scope to preserve page-agent injection
-    });
+      enabledManifests = [],
+      enabledToolIds = [],
+      tools,
+    } = resolvedAgentConfig;
 
     // Get search config with agentId for agent-specific settings
     const searchConfig = getSearchConfig(payload.model, payload.provider!, targetAgentId);
-
-    const toolsEngine = createAgentToolsEngine({
-      model: payload.model,
-      provider: payload.provider!,
-    });
-
-    const { tools, enabledToolIds, enabledManifests } = toolsEngine.generateToolsDetailed({
-      model: payload.model,
-      provider: payload.provider!,
-      toolIds: pluginIds,
-    });
 
     // =================== 1.1 process user memories =================== //
 
@@ -221,6 +209,28 @@ class ChatService {
         }
       }
 
+      // Get LobehubSkill providers (if enabled)
+      const isLobehubSkillEnabled =
+        typeof window !== 'undefined' &&
+        window.global_serverConfigStore?.getState()?.serverConfig?.enableLobehubSkill;
+
+      if (isLobehubSkillEnabled) {
+        const allLobehubSkillServers = lobehubSkillStoreSelectors.getServers(toolState);
+
+        for (const provider of LOBEHUB_SKILL_PROVIDERS) {
+          const server = allLobehubSkillServers.find((s) => s.identifier === provider.id);
+
+          officialTools.push({
+            description: `LobeHub Skill Provider: ${provider.label}`,
+            enabled: enabledPlugins.includes(provider.id),
+            identifier: provider.id,
+            installed: !!server,
+            name: provider.label,
+            type: 'lobehub-skill',
+          });
+        }
+      }
+
       agentBuilderContext = {
         ...baseContext,
         officialTools,
@@ -270,7 +280,7 @@ class ChatService {
         stream: chatConfig.enableStreaming !== false,
         tools,
       },
-      options,
+      { ...options, agentId: targetAgentId, topicId },
     );
   };
 
@@ -300,7 +310,7 @@ class ChatService {
   };
 
   getChatCompletion = async (params: Partial<ChatStreamPayload>, options?: FetchOptions) => {
-    const { signal, responseAnimation } = options ?? {};
+    const { agentId, signal, responseAnimation, topicId } = options ?? {};
 
     const { provider = ModelProvider.OpenAI, ...res } = params;
 
@@ -331,6 +341,8 @@ class ChatService {
 
     // Get the chat config to check streaming preference
     const chatConfig = agentChatConfigSelectors.currentChatConfig(getAgentStoreState());
+
+    delete (res as any).scope;
 
     const payload = merge(
       {
@@ -385,7 +397,12 @@ class ChatService {
     const traceHeader = createTraceHeader({ ...options?.trace });
 
     const headers = await createHeaderWithAuth({
-      headers: { 'Content-Type': 'application/json', ...traceHeader },
+      headers: {
+        'Content-Type': 'application/json',
+        ...traceHeader,
+        ...(agentId && { 'x-agent-id': agentId }),
+        ...(topicId && { 'x-topic-id': topicId }),
+      },
       provider,
     });
 
@@ -402,7 +419,7 @@ class ChatService {
       responseAnimation,
     ].reduce((acc, cur) => merge(acc, standardizeAnimationStyle(cur)), {});
 
-    return fetchSSE(API_ENDPOINTS.chat(sdkType), {
+    return fetchSSE(API_ENDPOINTS.chat(provider), {
       body: JSON.stringify(payload),
       fetcher: fetcher,
       headers,
@@ -471,26 +488,14 @@ class ChatService {
     onLoadingChange?.(true);
 
     try {
-      // Use simple tools engine without complex search logic
-      const toolsEngine = createToolsEngine();
-      const { tools, enabledManifests } = toolsEngine.generateToolsDetailed({
-        model: params.model!,
-        provider: params.provider!,
-        toolIds: params.plugins,
-      });
-
       const llmMessages = await contextEngineering({
-        manifests: enabledManifests,
         messages: params.messages as any,
         model: params.model!,
         provider: params.provider!,
-        tools: params.plugins,
       });
 
-      // remove plugins
-      delete params.plugins;
       await this.getChatCompletion(
-        { ...params, messages: llmMessages, tools },
+        { ...params, messages: llmMessages },
         {
           onErrorHandle: (error) => {
             errorHandle(new Error(error.message), error);
@@ -537,7 +542,7 @@ class ChatService {
      * if enable login and not signed in, return unauthorized error
      */
     const userStore = useUserStore.getState();
-    if (enableAuth && !userStore.isSignedIn) {
+    if (!userStore.isSignedIn) {
       throw AgentRuntimeError.createError(ChatErrorType.InvalidAccessCode);
     }
 

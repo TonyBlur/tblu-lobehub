@@ -51,6 +51,15 @@ export interface CreateAgentResult {
   sessionId: string;
 }
 
+export interface CreateAgentOnlyParams {
+  config?: PartialDeep<AgentItem>;
+  groupId: string;
+}
+
+export interface CreateAgentOnlyResult {
+  agentId: string;
+}
+
 class AgentService {
   /**
    * Check if an agent with the given marketIdentifier already exists
@@ -68,6 +77,14 @@ class AgentService {
   };
 
   /**
+   * Get an agent by forkedFromIdentifier stored in params
+   * @returns agent id if exists, null otherwise
+   */
+  getAgentByForkedFromIdentifier = async (forkedFromIdentifier: string): Promise<string | null> => {
+    return lambdaClient.agent.getAgentByForkedFromIdentifier.query({ forkedFromIdentifier });
+  };
+
+  /**
    * Create a new agent with session.
    * Automatically normalizes market agent config (handles model as object).
    */
@@ -75,6 +92,19 @@ class AgentService {
     const normalizedConfig = normalizeMarketAgentModel(params.config);
 
     return lambdaClient.agent.createAgent.mutate({
+      config: normalizedConfig as any,
+      groupId: params.groupId,
+    });
+  };
+
+  /**
+   * Create a virtual agent without session.
+   * Used for Group Agent Builder to create virtual agents for groups.
+   */
+  createAgentOnly = async (params: CreateAgentOnlyParams): Promise<CreateAgentOnlyResult> => {
+    const normalizedConfig = normalizeMarketAgentModel(params.config);
+
+    return lambdaClient.agent.createAgentOnly.mutate({
       config: normalizedConfig as any,
       groupId: params.groupId,
     });
@@ -184,6 +214,17 @@ class AgentService {
    */
   updateAgentPinned = async (agentId: string, pinned: boolean) => {
     return lambdaClient.agent.updateAgentPinned.mutate({ id: agentId, pinned });
+  };
+
+  /**
+   * Duplicate an agent.
+   * Returns the new agent ID.
+   */
+  duplicateAgent = async (
+    agentId: string,
+    newTitle?: string,
+  ): Promise<{ agentId: string } | null> => {
+    return lambdaClient.agent.duplicateAgent.mutate({ agentId, newTitle });
   };
 }
 

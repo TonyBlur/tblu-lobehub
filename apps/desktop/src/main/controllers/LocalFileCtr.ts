@@ -15,11 +15,13 @@ import {
   OpenLocalFileParams,
   OpenLocalFolderParams,
   RenameLocalFileResult,
+  ShowSaveDialogParams,
+  ShowSaveDialogResult,
   WriteLocalFileParams,
 } from '@lobechat/electron-client-ipc';
 import { SYSTEM_FILES_TO_IGNORE, loadFile } from '@lobechat/file-loaders';
 import { createPatch } from 'diff';
-import { shell } from 'electron';
+import { dialog, shell } from 'electron';
 import fg from 'fast-glob';
 import { Stats, constants } from 'node:fs';
 import { access, mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises';
@@ -76,6 +78,28 @@ export default class LocalFileCtr extends ControllerModule {
       logger.error(`Failed to open folder ${folderPath}:`, error);
       return { error: (error as Error).message, success: false };
     }
+  }
+
+  @IpcMethod()
+  async handleShowSaveDialog({
+    defaultPath,
+    filters,
+    title,
+  }: ShowSaveDialogParams): Promise<ShowSaveDialogResult> {
+    logger.debug('Showing save dialog:', { defaultPath, filters, title });
+
+    const result = await dialog.showSaveDialog({
+      defaultPath,
+      filters,
+      title,
+    });
+
+    logger.debug('Save dialog result:', { canceled: result.canceled, filePath: result.filePath });
+
+    return {
+      canceled: result.canceled,
+      filePath: result.filePath,
+    };
   }
 
   @IpcMethod()
@@ -194,8 +218,13 @@ export default class LocalFileCtr extends ControllerModule {
   }
 
   @IpcMethod()
-  async listLocalFiles({ path: dirPath }: ListLocalFileParams): Promise<FileResult[]> {
-    logger.debug('Listing directory contents:', { dirPath });
+  async listLocalFiles({
+    path: dirPath,
+    sortBy = 'modifiedTime',
+    sortOrder = 'desc',
+    limit = 100,
+  }: ListLocalFileParams): Promise<{ files: FileResult[]; totalCount: number }> {
+    logger.debug('Listing directory contents:', { dirPath, limit, sortBy, sortOrder });
 
     const results: FileResult[] = [];
     try {
@@ -232,22 +261,51 @@ export default class LocalFileCtr extends ControllerModule {
         }
       }
 
-      // Sort entries: folders first, then by name
+      // Sort entries based on sortBy and sortOrder
       results.sort((a, b) => {
-        if (a.isDirectory !== b.isDirectory) {
-          return a.isDirectory ? -1 : 1; // Directories first
+        let comparison = 0;
+
+        switch (sortBy) {
+          case 'name': {
+            comparison = (a.name || '').localeCompare(b.name || '');
+            break;
+          }
+          case 'modifiedTime': {
+            comparison = a.modifiedTime.getTime() - b.modifiedTime.getTime();
+            break;
+          }
+          case 'createdTime': {
+            comparison = a.createdTime.getTime() - b.createdTime.getTime();
+            break;
+          }
+          case 'size': {
+            comparison = a.size - b.size;
+            break;
+          }
+          default: {
+            comparison = a.modifiedTime.getTime() - b.modifiedTime.getTime();
+          }
         }
-        // Add null/undefined checks for robustness if needed, though names should exist
-        return (a.name || '').localeCompare(b.name || ''); // Then sort by name
+
+        return sortOrder === 'desc' ? -comparison : comparison;
       });
 
-      logger.debug('Directory listing successful', { dirPath, resultCount: results.length });
-      return results;
+      const totalCount = results.length;
+
+      // Apply limit
+      const limitedResults = results.slice(0, limit);
+
+      logger.debug('Directory listing successful', {
+        dirPath,
+        resultCount: limitedResults.length,
+        totalCount,
+      });
+      return { files: limitedResults, totalCount };
     } catch (error) {
       logger.error(`Failed to list directory ${dirPath}:`, error);
       // Rethrow or return an empty array/error object depending on desired behavior
-      // For now, returning empty array on error listing directory itself
-      return [];
+      // For now, returning empty result on error listing directory itself
+      return { files: [], totalCount: 0 };
     }
   }
 
@@ -548,7 +606,13 @@ export default class LocalFileCtr extends ControllerModule {
         filesToSearch = [searchPath];
       } else {
         // Use glob pattern if provided, otherwise search all files
-        const globPattern = params.glob || '**/*';
+        // If glob doesn't contain directory separator and doesn't start with **,
+        // auto-prefix with **/ to make it recursive
+        let globPattern = params.glob || '**/*';
+        if (params.glob && !params.glob.includes('/') && !params.glob.startsWith('**')) {
+          globPattern = `**/${params.glob}`;
+        }
+
         filesToSearch = await fg(globPattern, {
           absolute: true,
           cwd: searchPath,

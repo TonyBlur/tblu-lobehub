@@ -1,13 +1,14 @@
 import { renderPlaceholderTemplate } from '@lobechat/context-engine';
 import type { GenerateObjectSchema } from '@lobechat/model-runtime';
 
+import { gatekeeperPrompt } from '../prompts';
 import { GatekeeperResult, GatekeeperResultSchema } from '../schemas';
 import { GatekeeperOptions } from '../types';
 import { BaseMemoryExtractor } from './base';
 
 export class UserMemoryGateKeeper extends BaseMemoryExtractor<GatekeeperResult, GatekeeperOptions> {
-  getPromptFileName(): string {
-    return 'gatekeeper.md';
+  getPrompt(): string {
+    return gatekeeperPrompt;
   }
 
   getSchema(): GenerateObjectSchema {
@@ -26,12 +27,13 @@ export class UserMemoryGateKeeper extends BaseMemoryExtractor<GatekeeperResult, 
       schema: {
         additionalProperties: false,
         properties: {
+          activity: layerDecision,
           context: layerDecision,
           experience: layerDecision,
           identity: layerDecision,
           preference: layerDecision,
         },
-        required: ['context', 'experience', 'identity', 'preference'],
+        required: ['activity', 'context', 'experience', 'identity', 'preference'],
         type: 'object' as const,
       },
       strict: true,

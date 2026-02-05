@@ -8,17 +8,11 @@ import { DiffIcon, Minus, Plus } from 'lucide-react';
 import { type ReactNode, memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { shinyTextStyles } from '@/styles';
+import { oneLineEllipsis, shinyTextStyles } from '@/styles';
 
 import type { ModifyNodesState } from '../../../types';
 
 const styles = createStaticStyles(({ css, cssVar }) => ({
-  root: css`
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 1;
-  `,
   separator: css`
     margin-inline: 2px;
     color: ${cssVar.colorTextQuaternary};
@@ -35,8 +29,11 @@ export const ModifyNodesInspector = memo<BuiltinInspectorProps<ModifyNodesArgs, 
 
     // Count operations by type
     const counts = useMemo(() => {
-      const operations = args?.operations || partialArgs?.operations || [];
-      return operations.reduce(
+      const ops = args?.operations || partialArgs?.operations;
+      // During streaming, operations may be a partial object instead of array
+      if (!Array.isArray(ops)) return { insert: 0, modify: 0, remove: 0 };
+
+      return ops.reduce(
         (acc, op) => {
           switch (op.action) {
             case 'insert': {
@@ -66,7 +63,7 @@ export const ModifyNodesInspector = memo<BuiltinInspectorProps<ModifyNodesArgs, 
     // During streaming without operations yet, show init message
     if (isArgumentsStreaming && !hasOperations) {
       return (
-        <div className={cx(styles.root, shinyTextStyles.shinyText)}>
+        <div className={cx(oneLineEllipsis, shinyTextStyles.shinyText)}>
           <span>{t('builtins.lobe-page-agent.apiName.modifyNodes.init')}</span>
         </div>
       );
@@ -100,7 +97,7 @@ export const ModifyNodesInspector = memo<BuiltinInspectorProps<ModifyNodesArgs, 
     }
 
     return (
-      <div className={cx(styles.root, isArgumentsStreaming && shinyTextStyles.shinyText)}>
+      <div className={cx(oneLineEllipsis, isArgumentsStreaming && shinyTextStyles.shinyText)}>
         <span className={styles.title}>{t('builtins.lobe-page-agent.apiName.modifyNodes')}</span>
         {statsParts.length > 0 && (
           <>

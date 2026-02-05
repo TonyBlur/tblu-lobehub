@@ -16,8 +16,6 @@ export default ({ token }: { prefixCls: string; token: Theme }) => css`
     min-height: 100dvh;
     max-height: 100dvh;
 
-    background: ${token.colorBgLayout};
-
     @media (min-device-width: 576px) {
       overflow: hidden;
     }
@@ -57,8 +55,8 @@ export default ({ token }: { prefixCls: string; token: Theme }) => css`
     -webkit-app-region: no-drag;
   }
 
-  .${CLASSNAMES.ContextTrigger}[data-popup-open],
-    .${CLASSNAMES.DropdownMenuTrigger}[data-popup-open] {
+  .${CLASSNAMES.ContextTrigger}[data-popup-open]:not([data-no-highlight]),
+  .${CLASSNAMES.DropdownMenuTrigger}[data-popup-open]:not([data-no-highlight]) {
     background: ${token.colorFillTertiary};
   }
 `;

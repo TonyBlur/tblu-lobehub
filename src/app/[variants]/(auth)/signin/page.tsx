@@ -10,6 +10,7 @@ import { useSignIn } from './useSignIn';
 
 const SignInPage = () => {
   const {
+    disableEmailPassword,
     email,
     form,
     handleBackToEmail,
@@ -17,6 +18,7 @@ const SignInPage = () => {
     handleForgotPassword,
     handleSignIn,
     handleSocialSignIn,
+    isSocialOnly,
     loading,
     oAuthSSOProviders,
     serverConfigInit,
@@ -28,10 +30,13 @@ const SignInPage = () => {
     <Suspense fallback={<Loading debugId={'Signin'} />}>
       {step === 'email' ? (
         <SignInEmailStep
+          disableEmailPassword={disableEmailPassword}
           form={form as any}
+          isSocialOnly={isSocialOnly}
           loading={loading}
           oAuthSSOProviders={oAuthSSOProviders}
           onCheckUser={handleCheckUser}
+          onSetPassword={handleForgotPassword}
           onSocialSignIn={handleSocialSignIn}
           serverConfigInit={serverConfigInit}
           socialLoading={socialLoading}

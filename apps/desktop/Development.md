@@ -181,7 +181,7 @@ export default class AuthCtr extends ControllerModule {
 
 2. **桌面端特定认证**：
    - 在桌面应用中使用固定的用户 ID
-   - 支持与 Clerk 和 NextAuth 等认证系统集成
+   - 支持与 Better Auth 认证系统集成
 
 ### 存储模块 (Store)
 
@@ -269,7 +269,7 @@ export class ShortcutManager {
    - 注入 App 实例
 
 ```typescript
-import { ControllerModule, IpcMethod, IpcServerMethod } from '@/controllers'
+import { ControllerModule, IpcMethod } from '@/controllers'
 
 export class ControllerModule implements IControllerModule {
   constructor(public app: App) {
@@ -282,11 +282,6 @@ export class BrowserWindowsCtr extends ControllerModule {
 
   @IpcMethod()
   openSettingsWindow(params?: OpenSettingsWindowOptions) {
-    // ...
-  }
-
-  @IpcServerMethod()
-  handleServerCommand(payload: any) {
     // ...
   }
 }

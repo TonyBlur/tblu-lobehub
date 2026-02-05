@@ -1,8 +1,8 @@
 import { renderPlaceholderTemplate } from '@lobechat/context-engine';
 import type { ModelRuntime } from '@lobechat/model-runtime';
-import { readFile } from 'node:fs/promises';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { gatekeeperPrompt } from '../prompts';
 import type { GatekeeperOptions } from '../types';
 import { UserMemoryGateKeeper } from './gatekeeper';
 
@@ -31,7 +31,7 @@ describe('UserMemoryGateKeeper', () => {
     expect(schema?.strict).toBe(true);
 
     const properties = (schema?.schema as any).properties;
-    const requiredLayers = ['context', 'experience', 'identity', 'preference'];
+    const requiredLayers = ['activity', 'context', 'experience', 'identity', 'preference'];
 
     requiredLayers.forEach((layer) => {
       const layerSchema = properties[layer];
@@ -71,18 +71,14 @@ describe('UserMemoryGateKeeper', () => {
     const expectedProps = extractor.getTemplateProps(templateOptions);
 
     expect(result).not.toBe('');
-    expect(result).toBe(
-      renderPlaceholderTemplate(
-        await readFile(new URL('../prompts/gatekeeper.md', import.meta.url).pathname, 'utf8'),
-        expectedProps,
-      ),
-    );
+    expect(result).toBe(renderPlaceholderTemplate(gatekeeperPrompt, expectedProps));
   });
 
   it('parses gatekeeper decisions from structured call', async () => {
     const extractor = new UserMemoryGateKeeper(extractorConfig);
 
     const llmResult = {
+      activity: { reasoning: 'reasoning', shouldExtract: true },
       context: { reasoning: 'reasoning', shouldExtract: true },
       experience: { reasoning: 'reasoning', shouldExtract: false },
       identity: { reasoning: 'reasoning', shouldExtract: true },

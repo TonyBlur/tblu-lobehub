@@ -1,16 +1,15 @@
-import { type ThemeMode } from 'antd-style';
 import isEqual from 'fast-deep-equal';
 import { gt, parse, valid } from 'semver';
 import { type SWRResponse } from 'swr';
 import type { StateCreator } from 'zustand/vanilla';
 
-import { LOBE_THEME_APPEARANCE } from '@/const/theme';
 import { CURRENT_VERSION, isDesktop } from '@/const/version';
 import { useOnlyFetchOnceSWR } from '@/libs/swr';
 import { globalService } from '@/services/global';
+import { getElectronStoreState } from '@/store/electron';
+import { electronSyncSelectors } from '@/store/electron/selectors';
 import type { SystemStatus } from '@/store/global/initialState';
 import { type LocaleMode } from '@/types/locale';
-import { setCookie } from '@/utils/client/cookie';
 import { switchLang } from '@/utils/client/switchLang';
 import { merge } from '@/utils/merge';
 import { setNamespace } from '@/utils/storeDebug';
@@ -23,9 +22,10 @@ export interface GlobalGeneralAction {
   openAgentInNewWindow: (agentId: string) => Promise<void>;
   openTopicInNewWindow: (agentId: string, topicId: string) => Promise<void>;
   switchLocale: (locale: LocaleMode, params?: { skipBroadcast?: boolean }) => void;
-  switchThemeMode: (themeMode: ThemeMode, params?: { skipBroadcast?: boolean }) => void;
+  updateResourceManagerColumnWidth: (column: 'name' | 'date' | 'size', width: number) => void;
   updateSystemStatus: (status: Partial<SystemStatus>, action?: any) => void;
   useCheckLatestVersion: (enabledCheck?: boolean) => SWRResponse<string>;
+  useCheckServerVersion: () => SWRResponse<string | null>;
   useInitSystemStatus: () => SWRResponse;
 }
 
@@ -114,22 +114,19 @@ export const generalActionSlice: StateCreator<
       })();
     }
   },
-  switchThemeMode: (themeMode, { skipBroadcast } = {}) => {
-    get().updateSystemStatus({ themeMode });
+  updateResourceManagerColumnWidth: (column, width) => {
+    const currentWidths = get().status.resourceManagerColumnWidths || {
+      date: 160,
+      name: 574,
+      size: 140,
+    };
 
-    setCookie(LOBE_THEME_APPEARANCE, themeMode === 'auto' ? undefined : themeMode);
-
-    if (isDesktop && !skipBroadcast) {
-      (async () => {
-        try {
-          const { ensureElectronIpc } = await import('@/utils/electron/ipc');
-
-          await ensureElectronIpc().system.updateThemeModeHandler(themeMode);
-        } catch (error) {
-          console.error('Failed to update theme in main process:', error);
-        }
-      })();
-    }
+    get().updateSystemStatus({
+      resourceManagerColumnWidths: {
+        ...currentWidths,
+        [column]: width,
+      },
+    });
   },
   updateSystemStatus: (status, action) => {
     if (!get().isStatusInit) return;
@@ -161,6 +158,55 @@ export const generalActionSlice: StateCreator<
 
           if (gt(latestMajorMinor, currentMajorMinor)) {
             set({ hasNewVersion: true, latestVersion: data }, false, n('checkLatestVersion'));
+          }
+        },
+      },
+    ),
+
+  useCheckServerVersion: () =>
+    useOnlyFetchOnceSWR(
+      isDesktop &&
+      // only check server version for self-hosted remote server
+      electronSyncSelectors.storageMode(getElectronStoreState()) !== 'cloud'
+        ? 'checkServerVersion'
+        : null,
+      async () => globalService.getServerVersion(),
+      {
+        onSuccess: (data: string | null) => {
+          if (data === null) {
+            set({ isServerVersionOutdated: true }, false);
+            return;
+          }
+
+          set({ serverVersion: data }, false);
+
+          if (!valid(CURRENT_VERSION) || !valid(data)) return;
+
+          const clientVersion = parse(CURRENT_VERSION);
+          const serverVersion = parse(data);
+
+          if (!clientVersion || !serverVersion) return;
+
+          const DIFF_THRESHOLD = 5;
+          //         Version difference calculation rules
+          // ┌─────────────────┬────────┬───────────┐
+          // │ Client → Server │  Diff  │  Result   │
+          // ├─────────────────┼────────┼───────────┤
+          // │ 1.0.5 → 1.0.0   │ 5      │ ⚠️ Too old│
+          // ├─────────────────┼────────┼───────────┤
+          // │ 1.1.0 → 1.0.5   │ 5      │ ⚠️ Too old│
+          // ├─────────────────┼────────┼───────────┤
+          // │ 2.0.0 → 1.9.9   │ 91     │ ⚠️ Too old│
+          // ├─────────────────┼────────┼───────────┤
+          // │ 1.0.4 → 1.0.0   │ 4      │ ✅ Normal │
+          // └─────────────────┴────────┴───────────┘
+          const versionDiff =
+            (clientVersion.major - serverVersion.major) * 100 +
+            (clientVersion.minor - serverVersion.minor) * 10 +
+            (clientVersion.patch - serverVersion.patch);
+
+          if (versionDiff >= DIFF_THRESHOLD) {
+            set({ isServerVersionOutdated: true }, false);
           }
         },
       },

@@ -1,5 +1,5 @@
 /**
- * MCP Schema - stdio 配置类型
+ * MCP Schema - stdio configuration type
  */
 export interface McpStdioConfig {
   args?: string[];
@@ -9,7 +9,7 @@ export interface McpStdioConfig {
 }
 
 /**
- * MCP Schema - http 配置类型
+ * MCP Schema - http configuration type
  */
 export interface McpHttpConfig {
   headers?: Record<string, string>;
@@ -18,43 +18,43 @@ export interface McpHttpConfig {
 }
 
 /**
- * MCP Schema 配置类型
+ * MCP Schema configuration type
  */
 export type McpConfig = McpStdioConfig | McpHttpConfig;
 
 /**
- * MCP Schema 对象
- * 符合 RFC 0001 定义
+ * MCP Schema object
+ * Conforms to RFC 0001 definition
  */
 export interface McpSchema {
-  /** 插件作者 */
+  /** Plugin author */
   author: string;
-  /** 插件配置 */
+  /** Plugin configuration */
   config: McpConfig;
-  /** 插件描述 */
+  /** Plugin description */
   description: string;
-  /** 插件主页 */
+  /** Plugin homepage */
   homepage?: string;
-  /** 插件图标 */
+  /** Plugin icon */
   icon?: string;
-  /** 插件唯一标识符，必须与URL中的id参数匹配 */
+  /** Plugin unique identifier, must match the id parameter in the URL */
   identifier: string;
-  /** 插件名称 */
+  /** Plugin name */
   name: string;
-  /** 插件版本 (semver) */
+  /** Plugin version (semver) */
   version: string;
 }
 
 /**
- * 协议URL解析结果
+ * Protocol URL parsing result
  */
 export interface ProtocolUrlParsed {
-  /** 操作类型 (如: 'install') */
+  /** Action type (e.g., 'install') */
   action: string;
-  /** 原始URL */
+  /** Original URL */
   originalUrl: string;
-  /** 解析后的所有查询参数 */
+  /** All parsed query parameters */
   params: Record<string, string>;
-  /** URL类型 (如: 'plugin') */
+  /** URL type (e.g., 'plugin') */
   urlType: string;
 }

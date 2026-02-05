@@ -1,16 +1,18 @@
 import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import { type FC, type PropsWithChildren } from 'react';
 
+import ClientOnly from '@/components/client/ClientOnly';
+
 import AuthContainer from './_layout';
 
 const AuthLayout: FC<PropsWithChildren> = ({ children }) => {
   return (
-    <NuqsAdapter>
-      <AuthContainer>{children}</AuthContainer>
-    </NuqsAdapter>
+    <ClientOnly>
+      <NuqsAdapter>
+        <AuthContainer>{children}</AuthContainer>
+      </NuqsAdapter>
+    </ClientOnly>
   );
 };
-
-AuthLayout.displayName = 'AuthLayout';
 
 export default AuthLayout;

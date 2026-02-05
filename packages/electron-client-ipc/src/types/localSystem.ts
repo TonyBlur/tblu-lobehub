@@ -16,8 +16,40 @@ export interface LocalFileItem {
   type: string;
 }
 
+export type ListLocalFileSortBy = 'name' | 'modifiedTime' | 'createdTime' | 'size';
+export type ListLocalFileSortOrder = 'asc' | 'desc';
+
 export interface ListLocalFileParams {
+  /**
+   * Maximum number of files to return
+   * @default 100
+   */
+  limit?: number;
+  /**
+   * Directory path to list
+   */
   path: string;
+  /**
+   * Field to sort by
+   * @default 'modifiedTime'
+   */
+  sortBy?: ListLocalFileSortBy;
+  /**
+   * Sort order
+   * @default 'desc'
+   */
+  sortOrder?: ListLocalFileSortOrder;
+}
+
+export interface ListLocalFilesResult {
+  /**
+   * List of files (truncated to limit)
+   */
+  files: LocalFileItem[];
+  /**
+   * Total count of files before truncation
+   */
+  totalCount: number;
 }
 
 export interface MoveLocalFileParams {
@@ -224,4 +256,31 @@ export interface EditLocalFileResult {
   linesDeleted?: number;
   replacements: number;
   success: boolean;
+}
+
+// Save Dialog types
+export interface ShowSaveDialogParams {
+  /**
+   * Default file name
+   */
+  defaultPath?: string;
+  /**
+   * File type filters
+   */
+  filters?: { extensions: string[]; name: string }[];
+  /**
+   * Dialog title
+   */
+  title?: string;
+}
+
+export interface ShowSaveDialogResult {
+  /**
+   * Whether the dialog was cancelled
+   */
+  canceled: boolean;
+  /**
+   * The selected file path (undefined if cancelled)
+   */
+  filePath?: string;
 }

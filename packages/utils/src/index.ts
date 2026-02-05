@@ -1,7 +1,9 @@
 export * from './base64';
+export * from './chunkers'
 export * from './client/cookie';
 export * from './detectChinese';
 export * from './env';
+export * from './error';
 export * from './folderStructure';
 export * from './format';
 export * from './imageToBase64';
@@ -10,6 +12,7 @@ export * from './merge';
 export * from './multimodalContent';
 export * from './number';
 export * from './object';
+export * from './platform';
 export * from './pricing';
 export * from './safeParseJSON';
 export * from './sleep';

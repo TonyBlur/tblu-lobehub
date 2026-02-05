@@ -1,12 +1,12 @@
 import { isDesktop } from '@lobechat/const';
-import { ActionIcon, Dropdown, Flexbox, type MenuProps, Text } from '@lobehub/ui';
+import { ActionIcon, DropdownMenu, Flexbox, type MenuProps, Text } from '@lobehub/ui';
 import { ArrowRight, Plus, Unlink } from 'lucide-react';
 import { type CSSProperties, memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { modal, notification } from '@/components/AntdStaticMethods';
-import AuthIcons from '@/components/NextAuth/AuthIcons';
-import { userService } from '@/services/user';
+import AuthIcons from '@/components/AuthIcons';
+import { isBuiltinProvider, normalizeProviderId } from '@/libs/better-auth/utils/client';
 import { useServerConfigStore } from '@/store/serverConfig';
 import { serverConfigSelectors } from '@/store/serverConfig/selectors';
 import { useUserStore } from '@/store/user';
@@ -17,7 +17,7 @@ const providerNameStyle: CSSProperties = {
 };
 
 export const SSOProvidersList = memo(() => {
-  const isLoginWithBetterAuth = useUserStore(authSelectors.isLoginWithBetterAuth);
+  const isLogin = useUserStore(authSelectors.isLogin);
   const providers = useUserStore(authSelectors.authProviders);
   const hasPasswordAccount = useUserStore(authSelectors.hasPasswordAccount);
   const refreshAuthProviders = useUserStore((s) => s.refreshAuthProviders);
@@ -26,7 +26,7 @@ export const SSOProvidersList = memo(() => {
 
   // Allow unlink if user has multiple SSO providers OR has email/password login
   const allowUnlink = providers.length > 1 || hasPasswordAccount;
-  const enableBetterAuthActions = !isDesktop && isLoginWithBetterAuth;
+  const enableAuthActions = !isDesktop && isLogin;
 
   // Get linked provider IDs for filtering
   const linkedProviderIds = useMemo(() => {
@@ -34,13 +34,16 @@ export const SSOProvidersList = memo(() => {
   }, [providers]);
 
   // Get available providers for linking (filter out already linked)
+  // Normalize provider IDs when comparing to handle aliases (e.g. microsoft-entra-id → microsoft)
   const availableProviders = useMemo(() => {
-    return (oAuthSSOProviders || []).filter((provider) => !linkedProviderIds.has(provider));
+    return (oAuthSSOProviders || []).filter(
+      (provider) => !linkedProviderIds.has(normalizeProviderId(provider)),
+    );
   }, [oAuthSSOProviders, linkedProviderIds]);
 
-  const handleUnlinkSSO = async (provider: string, providerAccountId: string) => {
+  const handleUnlinkSSO = async (provider: string) => {
     // Better-auth link/unlink operations are not available on desktop
-    if (isDesktop && isLoginWithBetterAuth) return;
+    if (isDesktop) return;
 
     // Prevent unlink if this is the only login method
     if (!allowUnlink) {
@@ -55,14 +58,8 @@ export const SSOProvidersList = memo(() => {
         danger: true,
       },
       onOk: async () => {
-        if (isLoginWithBetterAuth) {
-          // Use better-auth native API
-          const { unlinkAccount } = await import('@/libs/better-auth/auth-client');
-          await unlinkAccount({ providerId: provider });
-        } else {
-          // Fallback for NextAuth
-          await userService.unlinkSSOProvider(provider, providerAccountId);
-        }
+        const { unlinkAccount } = await import('@/libs/better-auth/auth-client');
+        await unlinkAccount({ providerId: provider });
         refreshAuthProviders();
       },
       title: <span style={providerNameStyle}>{t('profile.sso.unlink.title', { provider })}</span>,
@@ -70,14 +67,24 @@ export const SSOProvidersList = memo(() => {
   };
 
   const handleLinkSSO = async (provider: string) => {
-    if (enableBetterAuthActions) {
-      // Use better-auth native linkSocial API
-      const { linkSocial } = await import('@/libs/better-auth/auth-client');
+    if (!enableAuthActions) return;
+
+    const normalizedProvider = normalizeProviderId(provider);
+    const { linkSocial, oauth2 } = await import('@/libs/better-auth/auth-client');
+
+    if (isBuiltinProvider(normalizedProvider)) {
+      // Use better-auth native linkSocial API for built-in providers
       await linkSocial({
         callbackURL: '/profile',
-        provider: provider as any,
+        provider: normalizedProvider as any,
       });
+      return;
     }
+
+    await oauth2.link({
+      callbackURL: '/profile',
+      providerId: normalizedProvider,
+    });
   };
 
   // Dropdown menu items for linking new providers
@@ -107,26 +114,26 @@ export const SSOProvidersList = memo(() => {
               </Text>
             )}
           </Flexbox>
-          {!(isDesktop && isLoginWithBetterAuth) && (
+          {!isDesktop && (
             <ActionIcon
               disabled={!allowUnlink}
               icon={Unlink}
-              onClick={() => handleUnlinkSSO(item.provider, item.providerAccountId)}
+              onClick={() => handleUnlinkSSO(item.provider)}
               size={'small'}
             />
           )}
         </Flexbox>
       ))}
 
-      {/* Link Account Button - Only show for Better-Auth users with available providers */}
-      {enableBetterAuthActions && availableProviders.length > 0 && (
-        <Dropdown menu={{ items: linkMenuItems, style: { maxWidth: '200px' } }} trigger={['click']}>
+      {/* Link Account Button - Only show for logged in users with available providers */}
+      {enableAuthActions && availableProviders.length > 0 && (
+        <DropdownMenu items={linkMenuItems} popupProps={{ style: { maxWidth: '200px' } }}>
           <Flexbox align={'center'} gap={6} horizontal style={{ cursor: 'pointer', fontSize: 12 }}>
             <Plus size={14} />
             <span>{t('profile.sso.link.button')}</span>
             <ArrowRight size={14} />
           </Flexbox>
-        </Dropdown>
+        </DropdownMenu>
       )}
     </Flexbox>
   );

@@ -70,14 +70,43 @@ export const transformQwenStream = (
 
   if (item.delta?.tool_calls) {
     return {
-      data: item.delta.tool_calls.map(
-        (value, index): StreamToolCallChunkData => ({
-          function: value.function,
-          id: value.id || generateToolCallId(index, value.function?.name),
-          index: typeof value.index !== 'undefined' ? value.index : index,
+      data: item.delta.tool_calls.map((value, arrayIndex): StreamToolCallChunkData => {
+        // Get the actual tool index from the chunk, fallback to array position
+        const toolIndex = typeof value.index !== 'undefined' ? value.index : arrayIndex;
+
+        // Store tool call info in streamContext.tools map by index for parallel tool calls
+        // This allows us to correctly track multiple tools being called in parallel
+        if (streamContext && value.id && value.function?.name) {
+          if (!streamContext.tools) {
+            streamContext.tools = {};
+          }
+          streamContext.tools[toolIndex] = {
+            id: value.id,
+            index: toolIndex,
+            name: value.function.name,
+          };
+        }
+
+        // Get stored tool info for this index (for incremental chunks without id)
+        const storedTool = streamContext?.tools?.[toolIndex];
+
+        return {
+          // Qwen models may send tool_calls in two separate chunks:
+          // 1. First chunk: {id, name} without arguments
+          // 2. Second chunk: {id, arguments} without name
+          // We need to provide default values to handle both cases
+          // Use null for missing name (same as OpenAI stream behavior)
+          function: {
+            arguments: value.function?.arguments ?? '',
+            name: value.function?.name ?? null,
+          },
+          // For incremental chunks without id, use the stored tool id from streamContext.tools
+          // based on the tool index to correctly associate arguments with the right tool call
+          id: value.id || storedTool?.id || generateToolCallId(toolIndex, value.function?.name),
+          index: toolIndex,
           type: value.type || 'function',
-        }),
-      ),
+        };
+      }),
       id: chunk.id,
       type: 'tool_calls',
     } as StreamProtocolToolCallChunk;

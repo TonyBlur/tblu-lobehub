@@ -1,4 +1,5 @@
 import type {
+  ActivityMemoryItemSchema,
   AddIdentityActionSchema,
   ContextMemoryItemSchema,
   ExperienceMemoryItemSchema,
@@ -6,6 +7,7 @@ import type {
   RemoveIdentityActionSchema,
   UpdateIdentityActionSchema,
 } from '@lobechat/memory-user-memory/schemas';
+import { formatMemorySearchResults } from '@lobechat/prompts';
 import { BaseExecutor, type BuiltinToolResult, SearchMemoryParams } from '@lobechat/types';
 import type { z } from 'zod';
 
@@ -13,35 +15,6 @@ import { userMemoryService } from '@/services/userMemory';
 
 import { MemoryIdentifier } from '../manifest';
 import { MemoryApiName } from '../types';
-
-/**
- * Format search results into human-readable summary
- */
-const formatSearchResultsSummary = (result: {
-  contexts: unknown[];
-  experiences: unknown[];
-  preferences: unknown[];
-}): string => {
-  const total = result.contexts.length + result.experiences.length + result.preferences.length;
-
-  if (total === 0) {
-    return '🔍 No memories found matching the query.';
-  }
-
-  const parts: string[] = [`🔍 Found ${total} memories:`];
-
-  if (result.contexts.length > 0) {
-    parts.push(`- ${result.contexts.length} context memories`);
-  }
-  if (result.experiences.length > 0) {
-    parts.push(`- ${result.experiences.length} experience memories`);
-  }
-  if (result.preferences.length > 0) {
-    parts.push(`- ${result.preferences.length} preference memories`);
-  }
-
-  return parts.join('\n');
-};
 
 /**
  * Memory Tool Executor
@@ -62,13 +35,14 @@ class MemoryExecutor extends BaseExecutor<typeof MemoryApiName> {
       const result = await userMemoryService.searchMemory(params);
 
       return {
-        content: formatSearchResultsSummary(result),
+        content: formatMemorySearchResults({ query: params.query, results: result }),
         state: result,
         success: true,
       };
     } catch (error) {
       const err = error as Error;
       return {
+        content: `searchUserMemory with error detail: ${err.message}`,
         error: {
           body: error,
           message: err.message,
@@ -101,13 +75,53 @@ class MemoryExecutor extends BaseExecutor<typeof MemoryApiName> {
       }
 
       return {
-        content: `🧠 Context memory saved: "${params.title}"`,
+        content: `Context memory "${params.title}" saved with memoryId: "${result.memoryId}" and contextId: "${result.contextId}"`,
         state: { contextId: result.contextId, memoryId: result.memoryId },
         success: true,
       };
     } catch (error) {
       const err = error as Error;
       return {
+        content: `addContextMemory with error detail: ${err.message}`,
+        error: {
+          body: error,
+          message: err.message,
+          type: 'PluginServerError',
+        },
+        success: false,
+      };
+    }
+  };
+
+  /**
+   * Add an activity memory
+   */
+  addActivityMemory = async (
+    params: z.infer<typeof ActivityMemoryItemSchema>,
+  ): Promise<BuiltinToolResult> => {
+    try {
+      const result = await userMemoryService.addActivityMemory(params);
+
+      if (!result.success) {
+        return {
+          error: {
+            message: result.message,
+            type: 'PluginServerError',
+          },
+          success: false,
+        };
+      }
+
+      return {
+        content: `Activity memory "${params.title}" saved with memoryId: "${result.memoryId}" and activityId: "${result.activityId}"`,
+        state: { activityId: result.activityId, memoryId: result.memoryId },
+        success: true,
+      };
+    } catch (error) {
+      const err = error as Error;
+
+      return {
+        content: `addActivityMemory with error detail: ${err.message}`,
         error: {
           body: error,
           message: err.message,
@@ -138,13 +152,15 @@ class MemoryExecutor extends BaseExecutor<typeof MemoryApiName> {
       }
 
       return {
-        content: `🧠 Experience memory saved: "${params.title}"`,
+        content: `Experience memory "${params.title}" saved with memoryId: "${result.memoryId}" and experienceId: "${result.experienceId}"`,
         state: { experienceId: result.experienceId, memoryId: result.memoryId },
         success: true,
       };
     } catch (error) {
       const err = error as Error;
+
       return {
+        content: `addExperienceMemory with error detail: ${err.message}`,
         error: {
           body: error,
           message: err.message,
@@ -175,13 +191,14 @@ class MemoryExecutor extends BaseExecutor<typeof MemoryApiName> {
       }
 
       return {
-        content: `🧠 Identity memory saved: "${params.title}"`,
+        content: `Identity memory "${params.title}" saved with memoryId: "${result.memoryId}" and identityId: "${result.identityId}"`,
         state: { identityId: result.identityId, memoryId: result.memoryId },
         success: true,
       };
     } catch (error) {
       const err = error as Error;
       return {
+        content: `addIdentityMemory with error detail: ${err.message}`,
         error: {
           body: error,
           message: err.message,
@@ -212,13 +229,14 @@ class MemoryExecutor extends BaseExecutor<typeof MemoryApiName> {
       }
 
       return {
-        content: `🧠 Preference memory saved: "${params.title}"`,
+        content: `Preference memory "${params.title}" saved with memoryId: "${result.memoryId}" and preferenceId: "${result.preferenceId}"`,
         state: { memoryId: result.memoryId, preferenceId: result.preferenceId },
         success: true,
       };
     } catch (error) {
       const err = error as Error;
       return {
+        content: `addPreferenceMemory with error detail: ${err.message}`,
         error: {
           body: error,
           message: err.message,
@@ -258,6 +276,7 @@ class MemoryExecutor extends BaseExecutor<typeof MemoryApiName> {
     } catch (error) {
       const err = error as Error;
       return {
+        content: `updateIdentityMemory with error detail: ${err.message}`,
         error: {
           body: error,
           message: err.message,
@@ -292,6 +311,7 @@ class MemoryExecutor extends BaseExecutor<typeof MemoryApiName> {
     } catch (error) {
       const err = error as Error;
       return {
+        content: `removeIdentityMemory with error detail: ${err.message}`,
         error: {
           body: error,
           message: err.message,

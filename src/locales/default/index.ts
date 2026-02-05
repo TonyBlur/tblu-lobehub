@@ -1,10 +1,8 @@
-import { businessLocales } from '@/business/locales/index';
-
+import agentGroup from './agentGroup';
 import auth from './auth';
 import authError from './authError';
 import changelog from './changelog';
 import chat from './chat';
-import clerk from './clerk';
 import color from './color';
 import common from './common';
 import components from './components';
@@ -41,11 +39,11 @@ import ui from './ui';
 import welcome from './welcome';
 
 const resources = {
+  agentGroup,
   auth,
   authError,
   changelog,
   chat,
-  clerk,
   color,
   common,
   components,
@@ -82,8 +80,6 @@ const resources = {
   topic,
   ui,
   welcome,
-
-  ...businessLocales,
 } as const;
 
 export default resources;

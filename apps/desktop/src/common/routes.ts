@@ -1,47 +1,47 @@
 /**
- * 路由拦截类型，描述拦截路由和目标窗口的映射关系
+ * Route interception type, describing the mapping between intercepted routes and target windows
  */
 export interface RouteInterceptConfig {
   /**
-   * 是否始终在新窗口中打开，即使目标窗口已经存在
+   * Whether to always open in a new window, even if target window already exists
    */
   alwaysOpenNew?: boolean;
 
   /**
-   * 描述
+   * Description
    */
   description: string;
 
   /**
-   * 是否启用拦截
+   * Whether interception is enabled
    */
   enabled: boolean;
 
   /**
-   * 路由模式前缀，例如 '/settings'
+   * Route pattern prefix, e.g., '/settings'
    */
   pathPrefix: string;
 
   /**
-   * 目标窗口标识符
+   * Target window identifier
    */
   targetWindow: string;
 }
 
 /**
- * 拦截路由配置列表
- * 定义了所有需要特殊处理的路由
+ * Intercepted route configuration list
+ * Defines all routes that require special handling
  */
 export const interceptRoutes: RouteInterceptConfig[] = [
   {
-    description: '开发者工具',
+    description: 'Developer Tools',
     enabled: true,
     pathPrefix: '/desktop/devtools',
     targetWindow: 'devtools',
   },
-  // 未来可能的其他路由
+  // Possible future routes
   // {
-  //   description: '帮助中心',
+  //   description: 'Help Center',
   //   enabled: true,
   //   pathPrefix: '/help',
   //   targetWindow: 'help',
@@ -49,24 +49,24 @@ export const interceptRoutes: RouteInterceptConfig[] = [
 ];
 
 /**
- * 通过路径查找匹配的路由拦截配置
- * @param path 需要检查的路径
- * @returns 匹配的拦截配置，如果没有匹配则返回 undefined
+ * Find matching route intercept configuration by path
+ * @param path Path to check
+ * @returns Matching intercept configuration, or undefined if no match found
  */
 export const findMatchingRoute = (path: string): RouteInterceptConfig | undefined => {
   return interceptRoutes.find((route) => route.enabled && path.startsWith(route.pathPrefix));
 };
 
 /**
- * 从完整路径中提取子路径
- * @param fullPath 完整路径，如 '/settings/agent'
- * @param pathPrefix 路径前缀，如 '/settings'
- * @returns 子路径，如 'agent'
+ * Extract sub-path from full path
+ * @param fullPath Full path, e.g., '/settings/agent'
+ * @param pathPrefix Path prefix, e.g., '/settings'
+ * @returns Sub-path, e.g., 'agent'
  */
 export const extractSubPath = (fullPath: string, pathPrefix: string): string | undefined => {
   if (fullPath.length <= pathPrefix.length) return undefined;
 
-  // 去除前导斜杠
+  // Remove leading slash
   const subPath = fullPath.slice(Math.max(0, pathPrefix.length + 1));
   return subPath || undefined;
 };

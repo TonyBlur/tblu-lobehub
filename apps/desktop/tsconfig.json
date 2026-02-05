@@ -15,21 +15,17 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "paths": {
-      "@/*": [
-        "./src/main/*"
-      ],
-      "~common/*": [
-        "./src/common/*"
-      ],
-      "*": [
-        "./*"
-      ]
+      "@/*": ["./src/main/*"],
+      "~common/*": ["./src/common/*"],
+      "*": ["./*"]
     }
   },
   "include": [
     "src/main/**/*",
+    "src/main/global.d.ts",
     "src/preload/**/*",
     "src/common/**/*",
-    "electron-builder.js"
+    "electron-builder.js",
+    "native-deps.config.js"
   ]
 }

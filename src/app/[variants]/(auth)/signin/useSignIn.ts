@@ -1,6 +1,5 @@
 import { ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
 import { Form } from 'antd';
-import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -8,10 +7,11 @@ import type { CheckUserResponseData } from '@/app/(backend)/api/auth/check-user/
 import type { ResolveUsernameResponseData } from '@/app/(backend)/api/auth/resolve-username/route';
 import { useBusinessSignin } from '@/business/client/hooks/useBusinessSignin';
 import { message } from '@/components/AntdStaticMethods';
-import { getAuthConfig } from '@/envs/auth';
 import { requestPasswordReset, signIn } from '@/libs/better-auth/auth-client';
 import { isBuiltinProvider, normalizeProviderId } from '@/libs/better-auth/utils/client';
+import { useRouter, useSearchParams } from '@/libs/next/navigation';
 import { useServerConfigStore } from '@/store/serverConfig';
+import { serverConfigSelectors } from '@/store/serverConfig/selectors';
 
 import { EMAIL_REGEX, USERNAME_REGEX } from './SignInEmailStep';
 
@@ -31,12 +31,14 @@ export const useSignIn = () => {
   const { t } = useTranslation('auth');
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { NEXT_PUBLIC_ENABLE_MAGIC_LINK: enableMagicLink } = getAuthConfig();
+  const enableMagicLink = useServerConfigStore(serverConfigSelectors.enableMagicLink);
+  const disableEmailPassword = useServerConfigStore(serverConfigSelectors.disableEmailPassword);
   const [form] = Form.useForm<SignInFormValues>();
   const [loading, setLoading] = useState(false);
   const [socialLoading, setSocialLoading] = useState<string | null>(null);
   const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
+  const [isSocialOnly, setIsSocialOnly] = useState(false);
   const serverConfigInit = useServerConfigStore((s) => s.serverConfigInit);
   const oAuthSSOProviders = useServerConfigStore((s) => s.serverConfig.oAuthSSOProviders) || [];
   const { ssoProviders, preSocialSigninCheck, getAdditionalData } = useBusinessSignin();
@@ -142,7 +144,8 @@ export const useSignIn = () => {
         return;
       }
 
-      message.info(t('betterAuth.signin.socialOnlyHint'));
+      // User has no password and magic link is disabled, they can only sign in via social
+      setIsSocialOnly(true);
     } catch (error) {
       console.error('Error checking user:', error);
       message.error(t('betterAuth.signin.error'));
@@ -215,6 +218,7 @@ export const useSignIn = () => {
   const handleBackToEmail = () => {
     setStep('email');
     setEmail('');
+    setIsSocialOnly(false);
   };
 
   const handleGoToSignup = () => {
@@ -239,6 +243,7 @@ export const useSignIn = () => {
   };
 
   return {
+    disableEmailPassword,
     email,
     form,
     handleBackToEmail,
@@ -247,6 +252,7 @@ export const useSignIn = () => {
     handleGoToSignup,
     handleSignIn,
     handleSocialSignIn,
+    isSocialOnly,
     loading,
     oAuthSSOProviders: ENABLE_BUSINESS_FEATURES ? ssoProviders : oAuthSSOProviders,
     serverConfigInit: ENABLE_BUSINESS_FEATURES ? true : serverConfigInit,

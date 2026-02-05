@@ -34,6 +34,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
 
@@ -162,14 +163,14 @@ describe('LobeOpenRouterAI - custom features', () => {
       );
     });
 
-    it('should add empty reasoning object when thinking is not enabled', async () => {
+    it('should not add reasoning object when thinking is not enabled', async () => {
       await instance.chat({
         messages: [{ content: 'Hello', role: 'user' }],
         model: 'openai/gpt-4',
       });
 
       expect(instance['client'].chat.completions.create).toHaveBeenCalledWith(
-        expect.objectContaining({ reasoning: {} }),
+        expect.not.objectContaining({ reasoning: expect.anything() }),
         expect.anything(),
       );
     });
@@ -204,22 +205,6 @@ describe('LobeOpenRouterAI - custom features', () => {
       );
     });
 
-    it('should cap reasoning tokens to max_tokens - 1 when budget exceeds max_tokens', async () => {
-      await instance.chat({
-        messages: [{ content: 'Think about this', role: 'user' }],
-        model: 'openai/gpt-4',
-        max_tokens: 1000,
-        thinking: { type: 'enabled', budget_tokens: 2000 },
-      });
-
-      expect(instance['client'].chat.completions.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          reasoning: { max_tokens: 999 }, // min(2000, 1000 - 1) = 999
-        }),
-        expect.anything(),
-      );
-    });
-
     it('should use model maxOutput when no max_tokens provided', async () => {
       // Mock OpenRouterModels to have a specific maxOutput
       const { openrouter } = await import('model-bank');
@@ -239,21 +224,6 @@ describe('LobeOpenRouterAI - custom features', () => {
           expect.anything(),
         );
       }
-    });
-
-    it('should use default 32000 when no max_tokens or model maxOutput available', async () => {
-      await instance.chat({
-        messages: [{ content: 'Think about this', role: 'user' }],
-        model: 'unknown/model-without-config',
-        thinking: { type: 'enabled', budget_tokens: 50000 },
-      });
-
-      expect(instance['client'].chat.completions.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          reasoning: { max_tokens: 31999 }, // min(50000, 32000 - 1) = 31999
-        }),
-        expect.anything(),
-      );
     });
 
     it('should combine enabledSearch and thinking features', async () => {
@@ -302,12 +272,12 @@ describe('LobeOpenRouterAI - custom features', () => {
       });
 
       expect(instance['client'].chat.completions.create).toHaveBeenCalledWith(
-        expect.objectContaining({ reasoning: {} }),
+        expect.objectContaining({ reasoning: { enabled: false } }),
         expect.anything(),
       );
     });
 
-    it('should handle undefined thinking', async () => {
+    it('should not add reasoning when thinking is undefined', async () => {
       await instance.chat({
         messages: [{ content: 'Hello', role: 'user' }],
         model: 'openai/gpt-4',
@@ -315,23 +285,7 @@ describe('LobeOpenRouterAI - custom features', () => {
       });
 
       expect(instance['client'].chat.completions.create).toHaveBeenCalledWith(
-        expect.objectContaining({ reasoning: {} }),
-        expect.anything(),
-      );
-    });
-
-    it('should cap reasoning tokens to 1 when max_tokens is 2', async () => {
-      await instance.chat({
-        messages: [{ content: 'Think about this', role: 'user' }],
-        model: 'openai/gpt-4',
-        max_tokens: 2,
-        thinking: { type: 'enabled', budget_tokens: 2000 },
-      });
-
-      expect(instance['client'].chat.completions.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          reasoning: { max_tokens: 1 }, // min(2000, 2 - 1) = 1
-        }),
+        expect.not.objectContaining({ reasoning: expect.anything() }),
         expect.anything(),
       );
     });
@@ -351,7 +305,7 @@ describe('LobeOpenRouterAI - custom features', () => {
       );
     });
 
-    it('should handle 0 budget_tokens (falsy, falls back to 1024)', async () => {
+    it('should handle 0 budget_tokens (passes directly)', async () => {
       await instance.chat({
         messages: [{ content: 'Think about this', role: 'user' }],
         model: 'openai/gpt-4',
@@ -360,7 +314,7 @@ describe('LobeOpenRouterAI - custom features', () => {
 
       expect(instance['client'].chat.completions.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          reasoning: { max_tokens: 1024 }, // 0 is falsy, falls back to 1024
+          reasoning: { max_tokens: 0 }, // 0 is passed directly
         }),
         expect.anything(),
       );
@@ -378,6 +332,107 @@ describe('LobeOpenRouterAI - custom features', () => {
           reasoning: { max_tokens: -100 },
         }),
         expect.anything(),
+      );
+    });
+
+    it('should map thinkingLevel to reasoning effort', async () => {
+      await instance.chat({
+        messages: [{ content: 'Think level', role: 'user' }],
+        model: 'openai/gpt-4',
+        thinkingLevel: 'medium',
+      } as any);
+
+      expect(instance['client'].chat.completions.create).toHaveBeenCalledWith(
+        expect.objectContaining({ reasoning: { effort: 'medium' } }),
+        expect.anything(),
+      );
+    });
+  });
+
+  describe('models mapping', () => {
+    it('should map extendParams for gpt-5.x reasoning and verbosity', async () => {
+      const mockModels = [
+        {
+          architecture: { input_modalities: ['text'] },
+          created: 1_700_000_000,
+          description: 'Test model',
+          id: 'openai/gpt-5.2-mini',
+          name: 'openai/gpt-5.2-mini',
+          pricing: { completion: '0.00001', prompt: '0.00001' },
+          supported_parameters: ['reasoning'],
+          top_provider: { context_length: 8192, max_completion_tokens: 1024 },
+        },
+        {
+          architecture: { input_modalities: ['text'] },
+          created: 1_700_000_000,
+          description: 'Test model',
+          id: 'openai/gpt-5.1-mini',
+          name: 'openai/gpt-5.1-mini',
+          pricing: { completion: '0.00001', prompt: '0.00001' },
+          supported_parameters: ['reasoning'],
+          top_provider: { context_length: 8192, max_completion_tokens: 1024 },
+        },
+      ];
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ data: mockModels }),
+        } as any),
+      );
+
+      const models = await params.models();
+      const gpt52 = models.find((m) => m.id === 'openai/gpt-5.2-mini');
+      const gpt51 = models.find((m) => m.id === 'openai/gpt-5.1-mini');
+
+      expect(gpt52?.settings?.extendParams).toEqual(
+        expect.arrayContaining(['gpt5_2ReasoningEffort', 'textVerbosity']),
+      );
+      expect(gpt51?.settings?.extendParams).toEqual(
+        expect.arrayContaining(['gpt5_1ReasoningEffort', 'textVerbosity']),
+      );
+    });
+
+    it('should map thinkingLevel for gemini-3 flash/pro reasoning', async () => {
+      const mockModels = [
+        {
+          architecture: { input_modalities: ['text'] },
+          created: 1_700_000_000,
+          description: 'Test model',
+          id: 'google/gemini-3-pro',
+          name: 'google/gemini-3-pro',
+          pricing: { completion: '0.00001', prompt: '0.00001' },
+          supported_parameters: ['reasoning'],
+          top_provider: { context_length: 8192, max_completion_tokens: 1024 },
+        },
+        {
+          architecture: { input_modalities: ['text'] },
+          created: 1_700_000_000,
+          description: 'Test model',
+          id: 'google/gemini-3-flash',
+          name: 'google/gemini-3-flash',
+          pricing: { completion: '0.00001', prompt: '0.00001' },
+          supported_parameters: ['reasoning'],
+          top_provider: { context_length: 8192, max_completion_tokens: 1024 },
+        },
+      ];
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ data: mockModels }),
+        } as any),
+      );
+
+      const models = await params.models();
+      const geminiPro = models.find((m) => m.id === 'google/gemini-3-pro');
+      const geminiFlash = models.find((m) => m.id === 'google/gemini-3-flash');
+
+      expect(geminiPro?.settings?.extendParams).toEqual(expect.arrayContaining(['thinkingLevel2']));
+      expect(geminiFlash?.settings?.extendParams).toEqual(
+        expect.arrayContaining(['thinkingLevel']),
       );
     });
   });
@@ -1092,7 +1147,8 @@ describe('LobeOpenRouterAI - custom features', () => {
       const models = await params.models();
 
       const nullMaxOutputModel = models.find((m) => m.id === 'null-maxoutput/model');
-      expect(nullMaxOutputModel?.maxOutput).toBeUndefined();
+      // When top_provider.max_completion_tokens is null, falls back to model.context_length
+      expect(nullMaxOutputModel?.maxOutput).toBe(8192);
     });
 
     it('should format releasedAt from created timestamp', async () => {

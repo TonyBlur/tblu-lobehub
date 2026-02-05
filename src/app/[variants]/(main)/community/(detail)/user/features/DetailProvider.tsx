@@ -3,15 +3,29 @@
 import { type ReactNode, createContext, memo, use } from 'react';
 
 import { type MarketUserProfile } from '@/layout/AuthProvider/MarketAuth/types';
-import { type DiscoverAssistantItem, type DiscoverUserInfo } from '@/types/discover';
+import {
+  type DiscoverAssistantItem,
+  type DiscoverGroupAgentItem,
+  type DiscoverUserInfo,
+} from '@/types/discover';
 
 export interface UserDetailContextConfig {
   agentCount: number;
+  agentGroups?: DiscoverGroupAgentItem[];
   agents: DiscoverAssistantItem[];
+  favoriteAgentGroups?: DiscoverGroupAgentItem[];
+  favoriteAgents?: DiscoverAssistantItem[];
+  forkedAgentGroups?: DiscoverGroupAgentItem[];
+  forkedAgents?: DiscoverAssistantItem[];
+  groupCount: number;
   isOwner: boolean;
   mobile?: boolean;
   onEditProfile?: (onSuccess?: (profile: MarketUserProfile) => void) => void;
-  onStatusChange?: (identifier: string, action: 'publish' | 'unpublish' | 'deprecate') => void;
+  onStatusChange?: (
+    identifier: string,
+    action: 'publish' | 'unpublish' | 'deprecate',
+    type?: 'agent' | 'group',
+  ) => void;
   totalInstalls: number;
   user: DiscoverUserInfo;
 }

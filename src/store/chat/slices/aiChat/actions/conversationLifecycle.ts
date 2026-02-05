@@ -77,11 +77,11 @@ export const conversationLifecycle: StateCreator<
   sendMessage: async ({
     message,
     files,
-    contexts,
     onlyAddUserMessage,
     context,
     messages: inputMessages,
     parentId: inputParentId,
+    pageSelections,
   }) => {
     const { internal_execAgentRuntime, mainInputEditor } = get();
 
@@ -186,6 +186,8 @@ export const conversationLifecycle: StateCreator<
         threadId: operationContext.threadId ?? undefined,
         imageList: tempImages.length > 0 ? tempImages : undefined,
         videoList: tempVideos.length > 0 ? tempVideos : undefined,
+        // Pass pageSelections metadata for immediate display
+        metadata: pageSelections?.length ? { pageSelections } : undefined,
       },
       { operationId, tempMessageId: tempId },
     );
@@ -197,13 +199,16 @@ export const conversationLifecycle: StateCreator<
         // if there is topicId，then add topicId to message
         topicId: operationContext.topicId ?? undefined,
         threadId: operationContext.threadId ?? undefined,
+        // Pass isSupervisor metadata for group orchestration (consistent with server)
+        metadata: operationContext.isSupervisor ? { isSupervisor: true } : undefined,
       },
       { operationId, tempMessageId: tempAssistantId },
     );
     get().internal_toggleMessageLoading(true, tempId);
 
-    // Associate temp message with operation
+    // Associate temp messages with operation
     get().associateMessageWithOperation(tempId, operationId);
+    get().associateMessageWithOperation(tempAssistantId, operationId);
 
     // Store editor state in operation metadata for cancel restoration
     const jsonState = mainInputEditor?.getJSONState();
@@ -219,7 +224,7 @@ export const conversationLifecycle: StateCreator<
       const topicId = operationContext.topicId;
       data = await aiChatService.sendMessageInServer(
         {
-          newUserMessage: { content: message, files: fileIdList, parentId },
+          newUserMessage: { content: message, files: fileIdList, pageSelections, parentId },
           // if there is topicId，then add topicId to message
           topicId: topicId ?? undefined,
           threadId: operationContext.threadId ?? undefined,
@@ -256,6 +261,7 @@ export const conversationLifecycle: StateCreator<
       if (data?.topics) {
         const pageSize = systemStatusSelectors.topicPageSize(useGlobalStore.getState());
         get().internal_updateTopics(operationContext.agentId, {
+          groupId: operationContext.groupId,
           items: data.topics.items,
           pageSize,
           total: data.topics.total,
@@ -286,7 +292,8 @@ export const conversationLifecycle: StateCreator<
       });
 
       if (data.isCreateNewTopic && data.topicId) {
-        await get().switchTopic(data.topicId, true);
+        // clearNewKey: true ensures the _new key data is cleared after topic creation
+        await get().switchTopic(data.topicId, { clearNewKey: true, skipRefreshMessage: true });
       }
     } catch (e) {
       console.error(e);
@@ -367,26 +374,10 @@ export const conversationLifecycle: StateCreator<
       messageMapKey(execContext),
     )(get());
 
-    const contextMessages =
-      contexts?.map((item, index) => {
-        const now = Date.now();
-        const title = item.title ? `${item.title}\n` : '';
-        return {
-          content: `Context ${index + 1}:\n${title}${item.content}`,
-          createdAt: now,
-          id: `ctx_${tempId}_${index}`,
-          role: 'system' as const,
-          updatedAt: now,
-        };
-      }) ?? [];
-
-    const runtimeMessages =
-      contextMessages.length > 0 ? [...displayMessages, ...contextMessages] : displayMessages;
-
     try {
       await internal_execAgentRuntime({
         context: execContext,
-        messages: runtimeMessages,
+        messages: displayMessages,
         parentMessageId: data.assistantMessageId,
         parentMessageType: 'assistant',
         parentOperationId: operationId, // Pass as parent operation
@@ -395,9 +386,6 @@ export const conversationLifecycle: StateCreator<
         skipCreateFirstMessage: true,
       });
 
-      //
-      // // if there is relative files, then add files to agent
-      // // only available in server mode
       const userFiles = dbMessageSelectors
         .dbUserFiles(get())
         .map((f) => f?.id)

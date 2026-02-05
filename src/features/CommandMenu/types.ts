@@ -4,7 +4,13 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
 }
 
-export type ThemeMode = 'light' | 'dark' | 'auto';
+export interface SelectedAgent {
+  avatar: string;
+  id: string;
+  title: string;
+}
+
+export type ThemeMode = 'light' | 'dark' | 'system';
 
 export type PageType = 'theme' | 'ask-ai' | string;
 
@@ -25,4 +31,7 @@ export type MenuContext =
   | 'page'
   | 'painting';
 
-export type ContextType = Extract<MenuContext, 'agent' | 'group' | 'resource' | 'settings' | 'page' | 'painting'>;
+export type ContextType = Extract<
+  MenuContext,
+  'agent' | 'group' | 'resource' | 'settings' | 'page' | 'painting'
+>;

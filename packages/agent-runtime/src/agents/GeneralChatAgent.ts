@@ -4,6 +4,7 @@ import { DEFAULT_SECURITY_BLACKLIST, InterventionChecker } from '../core';
 import {
   Agent,
   AgentInstruction,
+  AgentInstructionCompressContext,
   AgentRuntimeContext,
   AgentState,
   GeneralAgentCallLLMInstructionPayload,
@@ -11,11 +12,13 @@ import {
   GeneralAgentCallToolResultPayload,
   GeneralAgentCallToolsBatchInstructionPayload,
   GeneralAgentCallingToolInstructionPayload,
+  GeneralAgentCompressionResultPayload,
   GeneralAgentConfig,
   HumanAbortPayload,
   TaskResultPayload,
   TasksBatchResultPayload,
 } from '../types';
+import { shouldCompress } from '../utils/tokenCounter';
 
 /**
  * ChatAgent - The "Brain" of the chat agent
@@ -88,10 +91,22 @@ export class GeneralChatAgent implements Agent {
       }
 
       // Priority 0: CRITICAL - Check security blacklist FIRST
-      // This overrides ALL other settings, including auto-run mode
       const securityCheck = InterventionChecker.checkSecurityBlacklist(securityBlacklist, toolArgs);
+
+      // Priority 0.5: Headless mode - fully automated for async tasks
+      // In headless mode: blacklisted tools are skipped, all other tools execute directly
+      if (approvalMode === 'headless') {
+        if (securityCheck.blocked) {
+          // Skip blacklisted tools entirely (don't execute, don't wait for approval)
+          continue;
+        }
+        // All other tools execute directly
+        toolsToExecute.push(toolCalling);
+        continue;
+      }
+
+      // For non-headless modes: security blacklist requires intervention
       if (securityCheck.blocked) {
-        // Security blacklist always requires intervention
         toolsNeedingIntervention.push(toolCalling);
         continue;
       }
@@ -208,6 +223,26 @@ export class GeneralChatAgent implements Agent {
   }
 
   /**
+   * Find existing compression summary from messages
+   * Looks for MessageGroup with type 'compression' and extracts its content
+   */
+  private findExistingSummary(messages: any[]): string | undefined {
+    // Look for compression group summary in messages
+    // The summary is typically stored as a system message with compression metadata
+    // or as a MessageGroup content field
+    for (const msg of messages) {
+      if (msg.role === 'system' && msg.metadata?.compressionSummary) {
+        return msg.content;
+      }
+      // Check for MessageGroup type compression
+      if (msg.messageGroupType === 'compression' && msg.content) {
+        return msg.content;
+      }
+    }
+    return undefined;
+  }
+
+  /**
    * Handle abort scenario - unified abort handling logic
    */
   private handleAbort(
@@ -248,6 +283,27 @@ export class GeneralChatAgent implements Agent {
     switch (context.phase) {
       case 'init':
       case 'user_input': {
+        // Check if context compression is enabled and needed before calling LLM
+        const compressionEnabled = this.config.compressionConfig?.enabled ?? true; // Default to enabled
+
+        if (compressionEnabled) {
+          const compressionCheck = shouldCompress(state.messages, {
+            maxWindowToken: this.config.compressionConfig?.maxWindowToken,
+          });
+
+          if (compressionCheck.needsCompression) {
+            // Context exceeds threshold, compress ALL messages into a single summary
+            return {
+              payload: {
+                currentTokenCount: compressionCheck.currentTokenCount,
+                existingSummary: this.findExistingSummary(state.messages),
+                messages: state.messages,
+              },
+              type: 'compress_context',
+            } as AgentInstructionCompressContext;
+          }
+        }
+
         // User input received, call LLM to generate response
         // At this point, messages may have been preprocessed with RAG/Search
         return {
@@ -347,6 +403,30 @@ export class GeneralChatAgent implements Agent {
               type: 'exec_tasks',
             };
           }
+
+          // GTD client-side async task (single, desktop only)
+          if (stateType === 'execClientTask') {
+            const { parentMessageId: execParentId, task } = data.state as {
+              parentMessageId: string;
+              task: any;
+            };
+            return {
+              payload: { parentMessageId: execParentId, task },
+              type: 'exec_client_task',
+            };
+          }
+
+          // GTD client-side async tasks (multiple, desktop only)
+          if (stateType === 'execClientTasks') {
+            const { parentMessageId: execParentId, tasks } = data.state as {
+              parentMessageId: string;
+              tasks: any[];
+            };
+            return {
+              payload: { parentMessageId: execParentId, tasks },
+              type: 'exec_client_tasks',
+            };
+          }
         }
 
         // Check if there are still pending tool messages waiting for approval
@@ -433,12 +513,45 @@ export class GeneralChatAgent implements Agent {
         // Async tasks batch completed, continue to call LLM with results
         const { parentMessageId } = context.payload as TasksBatchResultPayload;
 
+        // Inject a virtual user message to force the model to summarize or continue
+        // This fixes an issue where some models (e.g., Kimi K2) return empty content
+        // when the last message is a task result, thinking the task is already done
+        const messagesWithPrompt = [
+          ...state.messages,
+          {
+            content:
+              'All tasks above have been completed. Please summarize the results or continue with your response following user query language.',
+            role: 'user' as const,
+          },
+        ];
+
         // Continue to call LLM with updated messages (task messages are already in state)
         return {
           payload: {
-            messages: state.messages,
+            messages: messagesWithPrompt,
             model: this.config.modelRuntimeConfig?.model,
             parentMessageId,
+            provider: this.config.modelRuntimeConfig?.provider,
+            tools: state.tools,
+          } as GeneralAgentCallLLMInstructionPayload,
+          type: 'call_llm',
+        };
+      }
+
+      case 'compression_result': {
+        // Context compression completed, continue to call LLM
+        const compressionPayload = context.payload as GeneralAgentCompressionResultPayload;
+
+        // If compression was skipped (no messages to compress), just call LLM
+        // Otherwise, messages have been updated with compressed content
+        // Pass parentMessageId and createAssistantMessage=true to force new message creation
+        return {
+          payload: {
+            // Force create new assistant message after compression
+            createAssistantMessage: true,
+            messages: compressionPayload.compressedMessages,
+            model: this.config.modelRuntimeConfig?.model,
+            parentMessageId: compressionPayload.parentMessageId,
             provider: this.config.modelRuntimeConfig?.provider,
             tools: state.tools,
           } as GeneralAgentCallLLMInstructionPayload,

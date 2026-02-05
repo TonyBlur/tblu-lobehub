@@ -6,10 +6,69 @@ const siliconcloudChatModels: AIChatModelCard[] = [
     abilities: {
       functionCall: true,
       reasoning: true,
+      vision: true,
+    },
+    contextWindowTokens: 262_144,
+    description:
+      'Kimi K2.5 is an open-source native multimodal agent model, built on Kimi-K2-Base, trained on approximately 1.5 trillion mixed vision and text tokens. The model adopts an MoE architecture with 1T total parameters and 32B active parameters, supporting a 256K context window, seamlessly integrating vision and language understanding capabilities.',
+    displayName: 'Kimi-K2.5 (Pro)',
+    id: 'Pro/moonshotai/Kimi-K2.5',
+    pricing: {
+      currency: 'CNY',
+      units: [
+        { name: 'textInput', rate: 4, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textOutput', rate: 21, strategy: 'fixed', unit: 'millionTokens' },
+      ],
+    },
+    releasedAt: '2026-01-27',
+    type: 'chat',
+  },
+  {
+    abilities: {
+      vision: true,
+    },
+    description:
+      'PaddleOCR-VL-1.5 is an upgraded version of the PaddleOCR-VL series, achieving 94.5% accuracy on the OmniDocBench v1.5 document parsing benchmark, surpassing leading general large models and specialized document parsing models. It innovatively supports irregular bounding box localization for document elements, handling scanned, tilted, and screen-captured images effectively.',
+    displayName: 'PaddleOCR-VL 1.5',
+    id: 'PaddlePaddle/PaddleOCR-VL-1.5',
+    pricing: {
+      currency: 'CNY',
+      units: [
+        { name: 'textInput', rate: 0, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textOutput', rate: 0, strategy: 'fixed', unit: 'millionTokens' },
+      ],
+    },
+    releasedAt: '2026-01-29',
+    type: 'chat',
+  },
+  {
+    abilities: {
+      functionCall: true,
+      reasoning: true,
+    },
+    contextWindowTokens: 192_000,
+    description:
+      'MiniMax-M2.1 is an open-source large language model optimized for agent capabilities, excelling in programming, tool usage, instruction following, and long-term planning. The model supports multilingual software development and complex multi-step workflow execution, achieving a score of 74.0 on SWE-bench Verified and surpassing Claude Sonnet 4.5 in multilingual scenarios.',
+    displayName: 'MiniMax-M2.1 (Pro)',
+    id: 'Pro/MiniMaxAI/MiniMax-M2.1',
+    pricing: {
+      currency: 'CNY',
+      units: [
+        { name: 'textInput', rate: 2.1, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textOutput', rate: 8.4, strategy: 'fixed', unit: 'millionTokens' },
+      ],
+    },
+    releasedAt: '2025-12-23',
+    type: 'chat',
+  },
+  {
+    abilities: {
+      functionCall: true,
+      reasoning: true,
     },
     contextWindowTokens: 200_000,
     description:
-      'GLM-4.7 是智谱新一代旗舰模型，总参数量 355B，激活参数量 32B，在通用对话、推理和智能体能力方面全面升级。GLM-4.7 增强了 Interleaved Thinking（交错思考），并引入了 Preserved Thinking（保留思考）和 Turn-level Thinking（轮级思考）。',
+      "GLM-4.7 is Zhipu's new generation flagship model with 355B total parameters and 32B active parameters, fully upgraded in general dialogue, reasoning, and agent capabilities. GLM-4.7 enhances Interleaved Thinking and introduces Preserved Thinking and Turn-level Thinking.",
     displayName: 'GLM-4.7 (Pro)',
     id: 'Pro/zai-org/glm-4.7',
     pricing: {

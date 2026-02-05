@@ -4,11 +4,13 @@ import {
   type AgentState,
   GeneralChatAgent,
 } from '@lobechat/agent-runtime';
+import { AgentRuntimeErrorType, ChatErrorType, type ChatMessageError } from '@lobechat/types';
 import debug from 'debug';
 import urlJoin from 'url-join';
 
 import { MessageModel } from '@/database/models/message';
 import { type LobeChatDatabase } from '@/database/type';
+import { appEnv } from '@/envs/app';
 import {
   AgentRuntimeCoordinator,
   type AgentRuntimeCoordinatorOptions,
@@ -40,6 +42,43 @@ import type {
 } from './types';
 
 const log = debug('lobe-server:agent-runtime-service');
+
+/**
+ * Formats an error into ChatMessageError structure
+ * Handles various error formats from LLM execution and other sources
+ */
+function formatErrorForState(error: unknown): ChatMessageError {
+  // Handle ChatCompletionErrorPayload format from LLM errors
+  // e.g., { errorType: 'InvalidProviderAPIKey', error: { ... }, provider: 'openai' }
+  if (error && typeof error === 'object' && 'errorType' in error) {
+    const payload = error as {
+      error?: unknown;
+      errorType: ChatMessageError['type'];
+      message?: string;
+    };
+    return {
+      body: payload.error || error,
+      message: payload.message || String(payload.errorType),
+      type: payload.errorType,
+    };
+  }
+
+  // Handle standard Error objects
+  if (error instanceof Error) {
+    return {
+      body: { name: error.name },
+      message: error.message,
+      type: ChatErrorType.InternalServerError,
+    };
+  }
+
+  // Fallback for unknown error types
+  return {
+    body: error,
+    message: String(error),
+    type: AgentRuntimeErrorType.AgentRuntimeError,
+  };
+}
 
 export interface AgentRuntimeServiceOptions {
   /**
@@ -87,11 +126,11 @@ export class AgentRuntimeService {
    */
   private stepCallbacks: Map<string, StepLifecycleCallbacks> = new Map();
   private get baseURL() {
-    const baseUrl =
-      process.env.AGENT_RUNTIME_BASE_URL || process.env.APP_URL || 'http://localhost:3010';
+    const baseUrl = process.env.AGENT_RUNTIME_BASE_URL || appEnv.APP_URL || 'http://localhost:3010';
 
     return urlJoin(baseUrl, '/api/agent');
   }
+  private serverDB: LobeChatDatabase;
   private userId: string;
   private messageModel: MessageModel;
 
@@ -107,12 +146,13 @@ export class AgentRuntimeService {
     });
     this.queueService =
       options?.queueService === null ? null : (options?.queueService ?? new QueueService());
+    this.serverDB = db;
     this.userId = userId;
     this.messageModel = new MessageModel(db, this.userId);
 
     // Initialize ToolExecutionService with dependencies
     const pluginGatewayService = new PluginGatewayService();
-    const builtinToolsExecutor = new BuiltinToolsExecutor();
+    const builtinToolsExecutor = new BuiltinToolsExecutor(db, userId);
 
     this.toolExecutionService = new ToolExecutionService({
       builtinToolsExecutor,
@@ -191,7 +231,9 @@ export class AgentRuntimeService {
       initialMessages = [],
       appContext,
       toolManifestMap,
+      toolSourceMap,
       stepCallbacks,
+      userInterventionConfig,
     } = params;
 
     try {
@@ -218,7 +260,10 @@ export class AgentRuntimeService {
         status: 'idle',
         stepCount: 0,
         toolManifestMap,
+        toolSourceMap,
         tools,
+        // User intervention config for headless mode in async tasks
+        userInterventionConfig,
       } as Partial<AgentState>;
 
       // Use coordinator to create operation, automatically sends initialization event
@@ -287,10 +332,7 @@ export class AgentRuntimeService {
       });
 
       // Get operation state and metadata
-      const [agentState, operationMetadata] = await Promise.all([
-        this.coordinator.loadAgentState(operationId),
-        this.coordinator.getOperationMetadata(operationId),
-      ]);
+      const agentState = await this.coordinator.loadAgentState(operationId);
 
       if (!agentState) {
         throw new Error(`Agent state not found for operation ${operationId}`);
@@ -311,8 +353,10 @@ export class AgentRuntimeService {
       }
 
       // Create Agent and Runtime instances
+      // Use agentState.metadata which contains the full app context (topicId, agentId, etc.)
+      // operationMetadata only contains basic fields (agentConfig, modelRuntimeConfig, userId)
       const { runtime } = await this.createAgentRuntime({
-        metadata: operationMetadata,
+        metadata: agentState?.metadata,
         operationId,
         stepIndex,
       });
@@ -431,12 +475,22 @@ export class AgentRuntimeService {
         type: 'error',
       });
 
+      // Build and save error state so it's persisted for later retrieval
+      const errorState = await this.coordinator.loadAgentState(operationId);
+      const finalStateWithError = {
+        ...errorState!,
+        error: formatErrorForState(error),
+        status: 'error' as const,
+      };
+
+      // Save the error state to coordinator so getOperationStatus can retrieve it
+      await this.coordinator.saveAgentState(operationId, finalStateWithError);
+
       // Also call onComplete callback when execution fails
       if (callbacks?.onComplete) {
         try {
-          const errorState = await this.coordinator.loadAgentState(operationId);
           await callbacks.onComplete({
-            finalState: errorState!,
+            finalState: finalStateWithError,
             operationId,
             reason: 'error',
           });
@@ -785,6 +839,9 @@ export class AgentRuntimeService {
     // Create Durable Agent instance
     const agent = new GeneralChatAgent({
       agentConfig: metadata?.agentConfig,
+      compressionConfig: {
+        enabled: metadata?.agentConfig?.chatConfig?.enableContextCompression ?? true,
+      },
       modelRuntimeConfig: metadata?.modelRuntimeConfig,
       operationId,
       userId: metadata?.userId,
@@ -794,9 +851,11 @@ export class AgentRuntimeService {
     const executorContext: RuntimeExecutorContext = {
       messageModel: this.messageModel,
       operationId,
+      serverDB: this.serverDB,
       stepIndex,
       streamManager: this.streamManager,
       toolExecutionService: this.toolExecutionService,
+      topicId: metadata?.topicId,
       userId: metadata?.userId,
     };
 

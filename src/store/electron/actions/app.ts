@@ -6,6 +6,8 @@ import { globalAgentContextManager } from '@/helpers/GlobalAgentContextManager';
 import { useOnlyFetchOnceSWR } from '@/libs/swr';
 // Import for type usage
 import { electronSystemService } from '@/services/electron/system';
+import { type LocaleMode } from '@/types/locale';
+import { switchLang } from '@/utils/client/switchLang';
 import { merge } from '@/utils/merge';
 
 import type { ElectronStore } from '../store';
@@ -13,6 +15,7 @@ import type { ElectronStore } from '../store';
 // ======== Action Interface ======== //
 
 export interface ElectronAppAction {
+  setConnectionDrawerOpen: (isOpen: boolean) => void;
   updateElectronAppState: (state: ElectronAppState) => void;
 
   /**
@@ -30,6 +33,10 @@ export const createElectronAppSlice: StateCreator<
   [],
   ElectronAppAction
 > = (set, get) => ({
+  setConnectionDrawerOpen: (isOpen: boolean) => {
+    set({ isConnectionDrawerOpen: isOpen }, false, 'setConnectionDrawerOpen');
+  },
+
   updateElectronAppState: (state: ElectronAppState) => {
     const prevState = get().appState;
     set({ appState: merge(prevState, state) });
@@ -55,6 +62,10 @@ export const createElectronAppSlice: StateCreator<
             userDataPath: result.userPath!.userData,
             videosPath: result.userPath!.videos,
           });
+
+          // Initialize i18n with the stored locale, falling back to auto detection.
+          const locale = (result.locale ?? 'auto') as LocaleMode;
+          switchLang(locale);
         },
       },
     ),

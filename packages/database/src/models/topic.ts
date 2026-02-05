@@ -17,7 +17,14 @@ import {
   sql,
 } from 'drizzle-orm';
 
-import { TopicItem, agents, agentsToSessions, messages, topics } from '../schemas';
+import {
+  TopicItem,
+  agents,
+  agentsToSessions,
+  messagePlugins,
+  messages,
+  topics,
+} from '../schemas';
 import { LobeChatDatabase } from '../type';
 import { genEndDateWhere, genRangeWhere, genStartDateWhere, genWhere } from '../utils/genWhere';
 import { idGenerator } from '../utils/idGenerator';
@@ -27,8 +34,10 @@ export interface CreateTopicParams {
   favorite?: boolean;
   groupId?: string | null;
   messages?: string[];
+  metadata?: ChatTopicMetadata;
   sessionId?: string | null;
   title?: string;
+  trigger?: string | null;
 }
 
 interface QueryTopicParams {
@@ -39,6 +48,10 @@ interface QueryTopicParams {
    */
   containerId?: string | null;
   current?: number;
+  /**
+   * Exclude topics by trigger types (e.g. ['cron'])
+   */
+  excludeTriggers?: string[];
   /**
    * Group ID to filter topics by
    */
@@ -70,15 +83,24 @@ export class TopicModel {
     agentId,
     containerId,
     current = 0,
+    excludeTriggers,
     pageSize = 9999,
     groupId,
     isInbox,
   }: QueryTopicParams = {}) => {
     const offset = current * pageSize;
+    const excludeTriggerCondition =
+      excludeTriggers && excludeTriggers.length > 0
+        ? or(isNull(topics.trigger), not(inArray(topics.trigger, excludeTriggers)))
+        : undefined;
 
     // If groupId is provided, query topics by groupId directly
     if (groupId) {
-      const whereCondition = and(eq(topics.userId, this.userId), eq(topics.groupId, groupId));
+      const whereCondition = and(
+        eq(topics.userId, this.userId),
+        eq(topics.groupId, groupId),
+        excludeTriggerCondition,
+      );
 
       const [items, totalResult] = await Promise.all([
         this.db
@@ -155,21 +177,25 @@ export class TopicModel {
             updatedAt: topics.updatedAt,
           })
           .from(topics)
-          .where(and(eq(topics.userId, this.userId), agentCondition))
+          .where(and(eq(topics.userId, this.userId), agentCondition, excludeTriggerCondition))
           .orderBy(desc(topics.favorite), desc(topics.updatedAt))
           .limit(pageSize)
           .offset(offset),
         this.db
           .select({ count: count(topics.id) })
           .from(topics)
-          .where(and(eq(topics.userId, this.userId), agentCondition)),
+          .where(and(eq(topics.userId, this.userId), agentCondition, excludeTriggerCondition)),
       ]);
 
       return { items, total: totalResult[0].count };
     }
 
     // Fallback to containerId-based query (backward compatibility)
-    const whereCondition = and(eq(topics.userId, this.userId), this.matchContainer(containerId));
+    const whereCondition = and(
+      eq(topics.userId, this.userId),
+      this.matchContainer(containerId),
+      excludeTriggerCondition,
+    );
 
     const [items, totalResult] = await Promise.all([
       this.db
@@ -479,28 +505,83 @@ export class TopicModel {
         })
         .returning();
 
-      // Find messages associated with the original topic
+      // Find messages associated with the original topic, ordered by createdAt
       const originalMessages = await tx
         .select()
         .from(messages)
-        .where(and(eq(messages.topicId, topicId), eq(messages.userId, this.userId)));
+        .where(and(eq(messages.topicId, topicId), eq(messages.userId, this.userId)))
+        .orderBy(messages.createdAt);
 
-      // copy messages
-      const duplicatedMessages = await Promise.all(
-        originalMessages.map(async (message) => {
-          const result = (await tx
-            .insert(messages)
-            .values({
-              ...message,
-              clientId: null,
-              id: idGenerator('messages'),
-              topicId: duplicatedTopic.id,
-            })
-            .returning()) as DBMessageItem[];
+      // Find all messagePlugins for this topic
+      const messageIds = originalMessages.map((m) => m.id);
+      const originalPlugins =
+        messageIds.length > 0
+          ? await tx
+              .select()
+              .from(messagePlugins)
+              .where(inArray(messagePlugins.id, messageIds))
+          : [];
 
-          return result[0];
-        }),
-      );
+      // Build oldId -> newId mapping for messages
+      const idMap = new Map<string, string>();
+      originalMessages.forEach((message) => {
+        idMap.set(message.id, idGenerator('messages'));
+      });
+
+      // Build oldToolId -> newToolId mapping for tools
+      const toolIdMap = new Map<string, string>();
+      originalMessages.forEach((message) => {
+        if (message.tools && Array.isArray(message.tools)) {
+          (message.tools as any[]).forEach((tool: any) => {
+            if (tool.id) {
+              toolIdMap.set(tool.id, `toolu_${idGenerator('messages')}`);
+            }
+          });
+        }
+      });
+
+      // copy messages sequentially to respect foreign key constraints
+      const duplicatedMessages: DBMessageItem[] = [];
+      for (const message of originalMessages) {
+        const newId = idMap.get(message.id)!;
+        const newParentId = message.parentId ? idMap.get(message.parentId) || null : null;
+
+        // Update tool IDs in tools array
+        let newTools = message.tools;
+        if (newTools && Array.isArray(newTools)) {
+          newTools = (newTools as any[]).map((tool: any) => ({
+            ...tool,
+            id: tool.id ? toolIdMap.get(tool.id) || tool.id : tool.id,
+          }));
+        }
+
+        const result = (await tx
+          .insert(messages)
+          .values({
+            ...message,
+            clientId: null,
+            id: newId,
+            parentId: newParentId,
+            tools: newTools,
+            topicId: duplicatedTopic.id,
+          })
+          .returning()) as DBMessageItem[];
+
+        duplicatedMessages.push(result[0]);
+
+        // Copy messagePlugins if exists for this message
+        const plugin = originalPlugins.find((p) => p.id === message.id);
+        if (plugin) {
+          const newToolCallId = plugin.toolCallId ? toolIdMap.get(plugin.toolCallId) || null : null;
+
+          await tx.insert(messagePlugins).values({
+            ...plugin,
+            clientId: null,
+            id: newId,
+            toolCallId: newToolCallId,
+          });
+        }
+      }
 
       return {
         messages: duplicatedMessages,
@@ -658,10 +739,83 @@ export class TopicModel {
           ? undefined
           : or(
               isNull(topics.metadata),
-              sql`(${topics.metadata}->'memory_user_memory_extract'->>'extract_status') IS DISTINCT FROM 'completed'`,
+              sql`(${topics.metadata}->>'userMemoryExtractStatus') IS DISTINCT FROM 'completed'`,
             ),
         cursorCondition,
       ),
     });
+  };
+
+  countTopicsForMemoryExtractor = async (options: {
+    endDate?: Date;
+    ignoreExtracted?: boolean;
+    startDate?: Date;
+  } = {}) => {
+    const result = await this.db
+      .select({ total: count(topics.id) })
+      .from(topics)
+      .where(
+        and(
+          eq(topics.userId, this.userId),
+          options.startDate ? gte(topics.createdAt, options.startDate) : undefined,
+          options.endDate ? lte(topics.createdAt, options.endDate) : undefined,
+          options.ignoreExtracted
+            ? undefined
+          : or(
+              isNull(topics.metadata),
+              sql`(${topics.metadata}->>'userMemoryExtractStatus') IS DISTINCT FROM 'completed'`,
+            ),
+        ),
+      );
+
+    return result[0]?.total ?? 0;
+  };
+
+  /**
+   * Get cron topics grouped by cronJob for a specific agent
+   * Returns topics where trigger='cron' and metadata contains cronJobId
+   */
+  getCronTopicsGroupedByCronJob = async (agentId: string) => {
+    const cronTopics = await this.db
+      .select({
+        createdAt: topics.createdAt,
+        favorite: topics.favorite,
+        historySummary: topics.historySummary,
+        id: topics.id,
+        metadata: topics.metadata,
+        title: topics.title,
+        trigger: topics.trigger,
+        updatedAt: topics.updatedAt,
+      })
+      .from(topics)
+      .where(
+        and(
+          eq(topics.userId, this.userId),
+          eq(topics.agentId, agentId),
+          eq(topics.trigger, 'cron'),
+          // Check if metadata contains cronJobId
+          sql`${topics.metadata}->>'cronJobId' IS NOT NULL`,
+        ),
+      )
+      .orderBy(desc(topics.updatedAt));
+
+    // Group topics by cronJobId
+    const groupedTopics = new Map<string, typeof cronTopics>();
+
+    cronTopics.forEach((topic) => {
+      const cronJobId = topic.metadata?.cronJobId;
+      if (cronJobId) {
+        if (!groupedTopics.has(cronJobId)) {
+          groupedTopics.set(cronJobId, []);
+        }
+        groupedTopics.get(cronJobId)!.push(topic);
+      }
+    });
+
+    // Convert Map to array of grouped objects
+    return Array.from(groupedTopics.entries()).map(([cronJobId, topicList]) => ({
+      cronJobId,
+      topics: topicList,
+    }));
   };
 }

@@ -1,6 +1,7 @@
 /**
  * This file contains the root router of Lobe Chat tRPC-backend
  */
+import { accountDeletionRouter } from '@/business/server/lambda-routers/accountDeletion';
 import { referralRouter } from '@/business/server/lambda-routers/referral';
 import { spendRouter } from '@/business/server/lambda-routers/spend';
 import { subscriptionRouter } from '@/business/server/lambda-routers/subscription';
@@ -8,6 +9,7 @@ import { topUpRouter } from '@/business/server/lambda-routers/topUp';
 import { publicProcedure, router } from '@/libs/trpc/lambda';
 
 import { agentRouter } from './agent';
+import { agentCronJobRouter } from './agentCronJob';
 import { agentGroupRouter } from './agentGroup';
 import { aiAgentRouter } from './aiAgent';
 import { aiChatRouter } from './aiChat';
@@ -36,6 +38,7 @@ import { ragEvalRouter } from './ragEval';
 import { searchRouter } from './search';
 import { sessionRouter } from './session';
 import { sessionGroupRouter } from './sessionGroup';
+import { shareRouter } from './share';
 import { threadRouter } from './thread';
 import { topicRouter } from './topic';
 import { uploadRouter } from './upload';
@@ -46,6 +49,7 @@ import { userMemoryRouter } from './userMemory';
 
 export const lambdaRouter = router({
   agent: agentRouter,
+  agentCronJob: agentCronJobRouter,
   aiAgent: aiAgentRouter,
   aiChat: aiChatRouter,
   aiModel: aiModelRouter,
@@ -75,6 +79,7 @@ export const lambdaRouter = router({
   search: searchRouter,
   session: sessionRouter,
   sessionGroup: sessionGroupRouter,
+  share: shareRouter,
   thread: threadRouter,
   topic: topicRouter,
   upload: uploadRouter,
@@ -83,6 +88,7 @@ export const lambdaRouter = router({
   userMemories: userMemoriesRouter,
   userMemory: userMemoryRouter,
   /* eslint-disable sort-keys-fix/sort-keys-fix */
+  accountDeletion: accountDeletionRouter,
   referral: referralRouter,
   spend: spendRouter,
   subscription: subscriptionRouter,

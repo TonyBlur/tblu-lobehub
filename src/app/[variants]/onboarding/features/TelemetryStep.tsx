@@ -7,7 +7,7 @@ import { LoadingDots } from '@lobehub/ui/chat';
 import { Steps, Switch } from 'antd';
 import { cssVar } from 'antd-style';
 import { BrainIcon, HeartHandshakeIcon, PencilRulerIcon, ShieldCheck } from 'lucide-react';
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useRef, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 
 import { ProductLogo } from '@/components/Branding';
@@ -19,14 +19,23 @@ interface TelemetryStepProps {
 }
 
 const TelemetryStep = memo<TelemetryStepProps>(({ onNext }) => {
-  const { t } = useTranslation('onboarding');
+  const { t, i18n } = useTranslation('onboarding');
+  const locale = i18n.language;
   const [check, setCheck] = useState(true);
+  const [isNavigating, setIsNavigating] = useState(false);
+  const isNavigatingRef = useRef(false);
   const updateGeneralConfig = useUserStore((s) => s.updateGeneralConfig);
 
-  const handleChoice = (enabled: boolean) => {
-    updateGeneralConfig({ telemetry: enabled });
-    onNext();
-  };
+  const handleChoice = useCallback(
+    (enabled: boolean) => {
+      if (isNavigatingRef.current) return;
+      isNavigatingRef.current = true;
+      setIsNavigating(true);
+      updateGeneralConfig({ telemetry: enabled });
+      onNext();
+    },
+    [updateGeneralConfig, onNext],
+  );
 
   const IconAvatar = useCallback(({ icon }: { icon: IconProps['icon'] }) => {
     return (
@@ -55,6 +64,7 @@ const TelemetryStep = memo<TelemetryStepProps>(({ onNext }) => {
             deletePauseDuration={1000}
             deletingSpeed={32}
             hideCursorWhileTyping={'afterTyping'}
+            key={locale}
             pauseDuration={16_000}
             sentences={[
               t('telemetry.title', { name: 'Lobe AI' }),
@@ -123,6 +133,7 @@ const TelemetryStep = memo<TelemetryStepProps>(({ onNext }) => {
         </Flexbox>
       </Flexbox>
       <Button
+        disabled={isNavigating}
         onClick={() => handleChoice(check)}
         size={'large'}
         style={{

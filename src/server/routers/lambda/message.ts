@@ -4,10 +4,13 @@ import {
   UpdateMessagePluginSchema,
   UpdateMessageRAGParamsSchema,
 } from '@lobechat/types';
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { MessageModel } from '@/database/models/message';
-import { authedProcedure, router } from '@/libs/trpc/lambda';
+import { TopicShareModel } from '@/database/models/topicShare';
+import { CompressionRepository } from '@/database/repositories/compression';
+import { authedProcedure, publicProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { FileService } from '@/server/services/file';
 import { MessageService } from '@/server/services/message';
@@ -20,6 +23,7 @@ const messageProcedure = authedProcedure.use(serverDatabase).use(async (opts) =>
 
   return opts.next({
     ctx: {
+      compressionRepo: new CompressionRepository(ctx.serverDB, ctx.userId),
       fileService: new FileService(ctx.serverDB, ctx.userId),
       messageModel: new MessageModel(ctx.serverDB, ctx.userId),
       messageService: new MessageService(ctx.serverDB, ctx.userId),
@@ -44,7 +48,32 @@ export const messageRouter = router({
       return ctx.messageService.addFilesToMessage(id, fileIds, resolved);
     }),
 
-  count: messageProcedure
+  /**
+   * Cancel compression by deleting the compression group and restoring original messages
+   */
+cancelCompression: messageProcedure
+    .input(
+      z.object({
+        agentId: z.string(),
+        groupId: z.string().nullable().optional(),
+        messageGroupId: z.string(),
+        threadId: z.string().nullable().optional(),
+        topicId: z.string(),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const { messageGroupId, agentId, groupId, threadId, topicId } = input;
+
+      return ctx.messageService.cancelCompression(messageGroupId, {
+        agentId,
+        groupId,
+        threadId,
+        topicId,
+      });
+    }),
+
+  
+count: messageProcedure
     .input(
       z
         .object({
@@ -58,7 +87,9 @@ export const messageRouter = router({
       return ctx.messageModel.count(input);
     }),
 
-  countWords: messageProcedure
+  
+  
+countWords: messageProcedure
     .input(
       z
         .object({
@@ -72,24 +103,75 @@ export const messageRouter = router({
       return ctx.messageModel.countWords(input);
     }),
 
-  createMessage: messageProcedure
+  
+/**
+   * Create a compression group for old messages
+   * Creates a placeholder group, marks messages as compressed
+   * Returns messages to summarize for frontend AI generation
+   */
+createCompressionGroup: messageProcedure
+    .input(
+      z.object({
+        agentId: z.string(),
+        groupId: z.string().nullable().optional(),
+        messageIds: z.array(z.string()),
+        threadId: z.string().nullable().optional(),
+        topicId: z.string(),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const { topicId, messageIds, agentId, groupId, threadId } = input;
+
+      return ctx.messageService.createCompressionGroup(topicId, messageIds, {
+        agentId,
+        groupId,
+        threadId,
+        topicId,
+      });
+    }),
+
+  
+  
+createMessage: messageProcedure
     .input(CreateNewMessageParamsSchema)
     .mutation(async ({ input, ctx }) => {
-      // 如果没有 agentId 但有 sessionId，从 sessionId 解析出 agentId
+      // If there's no agentId but has sessionId, resolve agentId from sessionId
       let agentId = input.agentId;
       if (!agentId && input.sessionId) {
         agentId = (await resolveAgentIdFromSession(input.sessionId, ctx.serverDB, ctx.userId))!;
       }
 
-      // 使用解析后的 agentId 创建消息
+      // Create message with the resolved agentId
       return ctx.messageService.createMessage({ ...input, agentId } as any);
+    }),
+
+  
+  /**
+   * Finalize compression by updating the group with generated summary
+   */
+finalizeCompression: messageProcedure
+    .input(
+      z.object({
+        agentId: z.string(),
+        content: z.string(),
+        groupId: z.string().nullable().optional(),
+        messageGroupId: z.string(),
+        threadId: z.string().nullable().optional(),
+        topicId: z.string(),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const { messageGroupId, content, ...params } = input;
+
+      return ctx.messageService.finalizeCompression(messageGroupId, content, params);
     }),
 
   getHeatmaps: messageProcedure.query(async ({ ctx }) => {
     return ctx.messageModel.getHeatmaps();
   }),
 
-  getMessages: messageProcedure
+  getMessages: publicProcedure
+    .use(serverDatabase)
     .input(
       z.object({
         agentId: z.string().nullable().optional(),
@@ -99,11 +181,41 @@ export const messageRouter = router({
         sessionId: z.string().nullable().optional(),
         threadId: z.string().nullable().optional(),
         topicId: z.string().nullable().optional(),
+        topicShareId: z.string().optional(),
       }),
     )
     .query(async ({ input, ctx }) => {
-      return ctx.messageModel.query(input, {
-        postProcessUrl: (path) => ctx.fileService.getFullFileUrl(path),
+      const { topicShareId, ...queryParams } = input;
+
+      // Public access via topicShareId
+      if (topicShareId) {
+        const share = await TopicShareModel.findByShareIdWithAccessCheck(
+          ctx.serverDB,
+          topicShareId,
+          ctx.userId ?? undefined,
+        );
+
+        const messageModel = new MessageModel(ctx.serverDB, share.ownerId);
+        const fileService = new FileService(ctx.serverDB, share.ownerId);
+
+        return messageModel.query(
+          { ...queryParams, topicId: share.topicId },
+          {
+            postProcessUrl: (path) => fileService.getFullFileUrl(path),
+          },
+        );
+      }
+
+      // Authenticated access - require userId
+      if (!ctx.userId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication required' });
+      }
+
+      const messageModel = new MessageModel(ctx.serverDB, ctx.userId);
+      const fileService = new FileService(ctx.serverDB, ctx.userId);
+
+      return messageModel.query(queryParams, {
+        postProcessUrl: (path) => fileService.getFullFileUrl(path),
       });
     }),
 
@@ -201,6 +313,28 @@ export const messageRouter = router({
       const resolved = await resolveContext({ agentId, ...options }, ctx.serverDB, ctx.userId);
 
       return ctx.messageService.updateMessage(id, value as any, resolved);
+    }),
+
+  /**
+   * Update message group metadata (e.g., expanded state)
+   */
+  updateMessageGroupMetadata: messageProcedure
+    .input(
+      z.object({
+        context: z.object({
+          agentId: z.string(),
+          groupId: z.string().nullable().optional(),
+          threadId: z.string().nullable().optional(),
+          topicId: z.string(),
+        }),
+        expanded: z.boolean().optional(),
+        messageGroupId: z.string(),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const { messageGroupId, expanded, context } = input;
+
+      return ctx.messageService.updateMessageGroupMetadata(messageGroupId, { expanded }, context);
     }),
 
   updateMessagePlugin: messageProcedure

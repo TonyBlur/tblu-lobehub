@@ -1,9 +1,11 @@
 'use client';
 
 import { Block, Center, Grid, type GridProps, Text } from '@lobehub/ui';
-import { cssVar, useThemeMode } from 'antd-style';
+import { cssVar } from 'antd-style';
 import { memo } from 'react';
 import useMergeState from 'use-merge-value';
+
+import { useIsDark } from '@/hooks/useIsDark';
 
 export interface AspectRatioSelectProps extends Omit<GridProps, 'children' | 'onChange'> {
   defaultValue?: string;
@@ -14,7 +16,7 @@ export interface AspectRatioSelectProps extends Omit<GridProps, 'children' | 'on
 
 const AspectRatioSelect = memo<AspectRatioSelectProps>(
   ({ options, onChange, value, defaultValue, ...rest }) => {
-    const { isDarkMode } = useThemeMode();
+    const isDarkMode = useIsDark();
     const [active, setActive] = useMergeState('1:1', {
       defaultValue: defaultValue || '1:1',
       onChange,
@@ -27,8 +29,7 @@ const AspectRatioSelect = memo<AspectRatioSelectProps>(
           {options?.map((item) => {
             const [width, height] = item.value.split(':').map(Number);
             const isWidthGreater = width > height;
-            const isEqual = width === height;
-            const isActive = isEqual ? item.value === '1:1' : active === item.value;
+            const isActive = active === item.value;
             return (
               <Block
                 align={'center'}

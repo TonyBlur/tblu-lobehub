@@ -3,12 +3,12 @@ import { type KnowledgeItem, KnowledgeType } from '@lobechat/types';
 import { z } from 'zod';
 
 import { AgentModel } from '@/database/models/agent';
+import { ChatGroupModel } from '@/database/models/chatGroup';
 import { FileModel } from '@/database/models/file';
 import { KnowledgeBaseModel } from '@/database/models/knowledgeBase';
 import { SessionModel } from '@/database/models/session';
 import { UserModel } from '@/database/models/user';
 import { insertAgentSchema } from '@/database/schemas';
-import { pino } from '@/libs/logger';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { AgentService } from '@/server/services/agent';
@@ -20,6 +20,7 @@ const agentProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
     ctx: {
       agentModel: new AgentModel(ctx.serverDB, ctx.userId),
       agentService: new AgentService(ctx.serverDB, ctx.userId),
+      chatGroupModel: new ChatGroupModel(ctx.serverDB, ctx.userId),
       fileModel: new FileModel(ctx.serverDB, ctx.userId),
       knowledgeBaseModel: new KnowledgeBaseModel(ctx.serverDB, ctx.userId),
       sessionModel: new SessionModel(ctx.serverDB, ctx.userId),
@@ -108,6 +109,28 @@ export const agentRouter = router({
       );
     }),
 
+  /**
+   * Create an agent without session.
+   * Used for Group Agent Builder to create agents for groups.
+   * Returns only the agent ID.
+   */
+  createAgentOnly: agentProcedure
+    .input(
+      z.object({
+        config: z.object({}).passthrough().optional(),
+        groupId: z.string(),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      // Create the agent entity only (no session)
+      const agent = await ctx.agentModel.create(input.config ?? {});
+
+      // Add the agent to the group
+      await ctx.chatGroupModel.addAgentToGroup(input.groupId, agent.id);
+
+      return { agentId: agent.id };
+    }),
+
   deleteAgentFile: agentProcedure
     .input(
       z.object({
@@ -128,6 +151,35 @@ export const agentRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       return ctx.agentModel.deleteAgentKnowledgeBase(input.agentId, input.knowledgeBaseId);
+    }),
+
+  /**
+   * Duplicate an agent and its associated session.
+   * Returns the new agent ID and session ID.
+   */
+  duplicateAgent: agentProcedure
+    .input(
+      z.object({
+        agentId: z.string(),
+        newTitle: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      return ctx.agentModel.duplicate(input.agentId, input.newTitle);
+    }),
+
+  /**
+   * Get an agent by forkedFromIdentifier stored in params
+   * @returns agent id if exists, null otherwise
+   */
+  getAgentByForkedFromIdentifier: agentProcedure
+    .input(
+      z.object({
+        forkedFromIdentifier: z.string(),
+      }),
+    )
+    .query(async ({ input, ctx }) => {
+      return ctx.agentModel.getAgentByForkedFromIdentifier(input.forkedFromIdentifier);
     }),
 
   /**
@@ -160,7 +212,7 @@ export const agentRouter = router({
           if (!user) return DEFAULT_AGENT_CONFIG;
 
           const res = await ctx.agentService.createInbox();
-          pino.info({ res }, 'create inbox session');
+          console.log('create inbox session', res);
         }
       }
 
@@ -213,7 +265,7 @@ export const agentRouter = router({
 
       return [
         ...files
-          // 过滤掉所有图片
+          // Filter out all images
           .filter((file) => !file.fileType.startsWith('image'))
           .map((file) => ({
             enabled: knowledge.files.some((item) => item.id === file.id),

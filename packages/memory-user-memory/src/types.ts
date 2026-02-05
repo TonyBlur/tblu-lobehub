@@ -6,6 +6,7 @@ import type {
 import type { LayersEnum, MemorySourceType } from '@lobechat/types';
 
 import type {
+  ActivityExtractor,
   ContextExtractor,
   ExperienceExtractor,
   IdentityExtractor,
@@ -14,10 +15,12 @@ import type {
 
 export type MemoryExtractionAgent =
   | 'gatekeeper'
+  | 'layer-activity'
   | 'layer-context'
   | 'layer-experience'
   | 'layer-identity'
-  | 'layer-preference';
+  | 'layer-preference'
+  | 'user-persona';
 
 export interface ExtractorRunOptions<RO> extends ExtractorOptions {
   contextProvider: MemoryContextProvider<{ topK?: number }>;
@@ -30,12 +33,14 @@ export interface ExtractorOptions extends ExtractorTemplateProps {
   additionalMessages?: OpenAIChatMessage[];
   callbacks?: {
     onExtractError?: (agent: MemoryExtractionAgent, error: unknown) => Promise<void> | void;
-    onExtractRequest?: (agent: MemoryExtractionAgent, request: GenerateObjectPayload) =>
-      | Promise<void>
-      | void;
-    onExtractResponse?: <TOutput>(agent: MemoryExtractionAgent, response: TOutput) =>
-      | Promise<void>
-      | void;
+    onExtractRequest?: (
+      agent: MemoryExtractionAgent,
+      request: GenerateObjectPayload,
+    ) => Promise<void> | void;
+    onExtractResponse?: <TOutput>(
+      agent: MemoryExtractionAgent,
+      response: TOutput,
+    ) => Promise<void> | void;
   };
   messageIds?: string[];
   sourceId?: string;
@@ -67,7 +72,6 @@ export interface BaseExtractorDependencies {
   agent: MemoryExtractionAgent;
   model: string;
   modelRuntime: ModelRuntime;
-  promptRoot: string;
 }
 
 export interface MemoryExtractionLLMConfig {
@@ -109,7 +113,7 @@ export interface MemoryContextProvider<
   P extends Record<string, unknown> = Record<string, unknown>,
   R extends Record<string, unknown> = Record<string, unknown>,
 > {
-  buildContext(job: MemoryExtractionJob, options?: P): Promise<BuiltContext<R>>;
+  buildContext(userId: string, sourceId: string, options?: P): Promise<BuiltContext<R>>;
 }
 
 export interface MemoryResultRecorder<T = Record<string, unknown>> {
@@ -123,6 +127,10 @@ export interface PersistedMemoryResult {
 }
 
 export type MemoryExtractionLayerOutputs = Partial<{
+  activity: {
+    data?: Awaited<ReturnType<ActivityExtractor['structuredCall']>>;
+    error?: unknown;
+  };
   context: {
     data?: Awaited<ReturnType<ContextExtractor['structuredCall']>>;
     error?: unknown;
@@ -134,14 +142,15 @@ export type MemoryExtractionLayerOutputs = Partial<{
   identity: {
     data?: Awaited<ReturnType<IdentityExtractor['structuredCall']>>;
     error?: unknown;
-  }
+  };
   preference: {
     data?: Awaited<ReturnType<PreferenceExtractor['structuredCall']>>;
     error?: unknown;
-  }
+  };
 }>;
 
 export interface GatekeeperDecision {
+  activity: MemoryLayerDecision;
   context: MemoryLayerDecision;
   experience: MemoryLayerDecision;
   identity: MemoryLayerDecision;
@@ -168,4 +177,23 @@ export interface MemoryExtractionResult {
 
 export interface TemplateProps {
   [key: string]: unknown;
+}
+
+export interface PersonaTemplateProps extends ExtractorTemplateProps {
+  existingPersona?: string;
+  personaNotes?: string;
+  recentEvents?: string;
+  retrievedMemories?: string;
+  userProfile?: string;
+}
+
+export interface PersonaExtractorOptions extends ExtractorOptions, PersonaTemplateProps {}
+
+export interface UserPersonaExtractionResult {
+  diff?: string | null;
+  memoryIds?: string[];
+  persona: string;
+  reasoning?: string | null;
+  sourceIds?: string[];
+  tagline?: string | null;
 }

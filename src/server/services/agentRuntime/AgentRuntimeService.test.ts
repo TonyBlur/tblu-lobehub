@@ -1,7 +1,17 @@
+/**
+ * @vitest-environment node
+ */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentRuntimeService } from './AgentRuntimeService';
 import type { AgentExecutionParams, OperationCreationParams, StartExecutionParams } from './types';
+
+// Mock trusted client to avoid server-side env access
+vi.mock('@/libs/trusted-client', () => ({
+  generateTrustedClientToken: vi.fn().mockReturnValue(undefined),
+  getTrustedClientTokenForSession: vi.fn().mockResolvedValue(undefined),
+  isTrustedClientEnabled: vi.fn().mockReturnValue(false),
+}));
 
 // Mock database and models
 vi.mock('@/database/models/message', () => ({
@@ -33,6 +43,9 @@ vi.mock('@/server/modules/ModelRuntime', () => ({
 
 // Mock search service to avoid server-side env access
 vi.mock('@/server/services/search', () => ({
+  SearchService: vi.fn().mockImplementation(() => ({
+    search: vi.fn(),
+  })),
   searchService: {
     search: vi.fn(),
   },
@@ -156,7 +169,7 @@ describe('AgentRuntimeService', () => {
     it('should initialize with default base URL', () => {
       delete process.env.AGENT_RUNTIME_BASE_URL;
       const newService = new AgentRuntimeService(mockDb, mockUserId);
-      expect((newService as any).baseURL).toBe('http://localhost:3010/api/agent');
+      expect((newService as any).baseURL).toBe('http://localhost:3210/api/agent');
     });
 
     it('should initialize with custom base URL from environment', () => {
@@ -362,6 +375,93 @@ describe('AgentRuntimeService', () => {
           error: 'Runtime error',
         },
       });
+    });
+
+    it('should call onComplete with error in finalState when execution fails', async () => {
+      const error = new Error('Runtime error');
+      const mockRuntime = { step: vi.fn().mockRejectedValue(error) };
+      vi.spyOn(service as any, 'createAgentRuntime').mockReturnValue({ runtime: mockRuntime });
+
+      // Register onComplete callback
+      const mockOnComplete = vi.fn();
+      service.registerStepCallbacks('test-operation-1', {
+        onComplete: mockOnComplete,
+      });
+
+      await expect(service.executeStep(mockParams)).rejects.toThrow('Runtime error');
+
+      // Verify onComplete is called with error in finalState as ChatMessageError
+      // ChatErrorType.InternalServerError = 500
+      expect(mockOnComplete).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operationId: 'test-operation-1',
+          reason: 'error',
+          finalState: expect.objectContaining({
+            error: expect.objectContaining({
+              type: 500, // ChatErrorType.InternalServerError
+              message: 'Runtime error',
+              body: expect.objectContaining({ name: 'Error' }),
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('should call onComplete with ChatCompletionErrorPayload in finalState', async () => {
+      // Simulate LLM error format: { errorType: 'InvalidProviderAPIKey', error: { ... } }
+      const llmError = {
+        errorType: 'InvalidProviderAPIKey',
+        error: { status: 401 },
+        provider: 'openai',
+      };
+      const mockRuntime = { step: vi.fn().mockRejectedValue(llmError) };
+      vi.spyOn(service as any, 'createAgentRuntime').mockReturnValue({ runtime: mockRuntime });
+
+      // Register onComplete callback
+      const mockOnComplete = vi.fn();
+      service.registerStepCallbacks('test-operation-1', {
+        onComplete: mockOnComplete,
+      });
+
+      await expect(service.executeStep(mockParams)).rejects.toEqual(llmError);
+
+      // Verify error is formatted correctly with type from errorType
+      expect(mockOnComplete).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operationId: 'test-operation-1',
+          reason: 'error',
+          finalState: expect.objectContaining({
+            error: expect.objectContaining({
+              type: 'InvalidProviderAPIKey',
+              message: 'InvalidProviderAPIKey',
+              body: expect.objectContaining({ status: 401 }),
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('should save error state to coordinator for later retrieval (inMemory mode fix)', async () => {
+      const error = new Error('Test error for inMemory mode');
+      const mockRuntime = { step: vi.fn().mockRejectedValue(error) };
+      vi.spyOn(service as any, 'createAgentRuntime').mockReturnValue({ runtime: mockRuntime });
+
+      // Spy on coordinator.saveAgentState to verify it's called with error state
+      const saveStateSpy = vi.spyOn((service as any).coordinator, 'saveAgentState');
+
+      await expect(service.executeStep(mockParams)).rejects.toThrow('Test error for inMemory mode');
+
+      // Verify saveAgentState is called with error state before onComplete
+      expect(saveStateSpy).toHaveBeenCalledWith(
+        'test-operation-1',
+        expect.objectContaining({
+          error: expect.objectContaining({
+            type: 500, // ChatErrorType.InternalServerError
+            message: 'Test error for inMemory mode',
+          }),
+          status: 'error',
+        }),
+      );
     });
 
     it('should handle human intervention', async () => {

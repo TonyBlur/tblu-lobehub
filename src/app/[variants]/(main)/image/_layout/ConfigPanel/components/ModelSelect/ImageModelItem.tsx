@@ -1,12 +1,16 @@
+import { BRANDING_PROVIDER } from '@lobechat/business-const';
+import { CREDITS_PER_DOLLAR } from '@lobechat/const/currency';
 import { ModelIcon } from '@lobehub/icons';
-import { Flexbox, Text } from '@lobehub/ui';
-import { Popover } from 'antd';
-import { createStaticStyles, cx, useThemeMode } from 'antd-style';
+import { Flexbox, Popover, Text } from '@lobehub/ui';
+import { createStaticStyles, cx } from 'antd-style';
 import { type AiModelForSelect } from 'model-bank';
 import numeral from 'numeral';
 import { memo, useMemo } from 'react';
 
 import NewModelBadge from '@/components/ModelSelect/NewModelBadge';
+import { useIsDark } from '@/hooks/useIsDark';
+import { useServerConfigStore } from '@/store/serverConfig';
+import { serverConfigSelectors } from '@/store/serverConfig/selectors';
 
 const POPOVER_MAX_WIDTH = 320;
 
@@ -39,6 +43,10 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
 
 type ImageModelItemProps = AiModelForSelect & {
   /**
+   * Provider ID for determining price display format
+   */
+  providerId?: string;
+  /**
    * Whether to show new model badge
    * @default true
    */
@@ -55,25 +63,39 @@ const ImageModelItem = memo<ImageModelItemProps>(
     approximatePricePerImage,
     description,
     pricePerImage,
+    providerId,
     showPopover = true,
     showBadge = true,
     ...model
   }) => {
-    const { isDarkMode } = useThemeMode();
+    const isDarkMode = useIsDark();
+    const enableBusinessFeatures = useServerConfigStore(
+      serverConfigSelectors.enableBusinessFeatures,
+    );
 
     const priceLabel = useMemo(() => {
-      // Priority 1: Use exact price
-      if (typeof pricePerImage === 'number') {
-        return `${numeral(pricePerImage).format('$0,0.00[000]')} / image`;
-      }
-
-      // Priority 2: Use approximate price with prefix
-      if (typeof approximatePricePerImage === 'number') {
-        return `~ ${numeral(approximatePricePerImage).format('$0,0.00[000]')} / image`;
+      // Show credits only for branding provider with business features enabled
+      if (enableBusinessFeatures && providerId === BRANDING_PROVIDER) {
+        if (typeof pricePerImage === 'number') {
+          const credits = pricePerImage * CREDITS_PER_DOLLAR;
+          return `${numeral(credits).format('0,0')} credits/张`;
+        }
+        if (typeof approximatePricePerImage === 'number') {
+          const credits = approximatePricePerImage * CREDITS_PER_DOLLAR;
+          return `~ ${numeral(credits).format('0,0')} credits/张`;
+        }
+      } else {
+        // Show USD price for open source version or non-branding providers
+        if (typeof pricePerImage === 'number') {
+          return `${numeral(pricePerImage).format('$0,0.00[000]')} / image`;
+        }
+        if (typeof approximatePricePerImage === 'number') {
+          return `~ ${numeral(approximatePricePerImage).format('$0,0.00[000]')} / image`;
+        }
       }
 
       return undefined;
-    }, [approximatePricePerImage, pricePerImage]);
+    }, [approximatePricePerImage, enableBusinessFeatures, pricePerImage, providerId]);
 
     const popoverContent = useMemo(() => {
       if (!description && !priceLabel) return null;
@@ -108,10 +130,6 @@ const ImageModelItem = memo<ImageModelItemProps>(
 
     return (
       <Popover
-        align={{
-          offset: [24, -10],
-        }}
-        arrow={false}
         classNames={{ root: cx(styles.popover, isDarkMode && styles.popover_dark) }}
         content={popoverContent}
         placement="rightTop"

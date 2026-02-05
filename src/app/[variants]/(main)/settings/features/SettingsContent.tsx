@@ -1,7 +1,7 @@
 'use client';
 
 import { ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
-import dynamic from 'next/dynamic';
+import dynamic from '@/libs/next/dynamic';
 import { Fragment } from 'react';
 
 import Loading from '@/components/Loading/BrandTextLoading';
@@ -55,6 +55,9 @@ const componentMap = {
   }),
   [SettingsTabs.Security]: dynamic(() => import('../security'), {
     loading: () => <Loading debugId="Settings > Security" />,
+  }),
+  [SettingsTabs.Skill]: dynamic(() => import('../skill'), {
+    loading: () => <Loading debugId="Settings > Skill" />,
   }),
   ...(ENABLE_BUSINESS_FEATURES
     ? ({

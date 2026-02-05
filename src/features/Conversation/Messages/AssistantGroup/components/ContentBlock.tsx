@@ -1,4 +1,4 @@
-import { Flexbox } from '@lobehub/ui';
+import { Flexbox, Highlighter } from '@lobehub/ui';
 import { memo, useCallback } from 'react';
 
 import { LOADING_FLAT } from '@/const/message';
@@ -14,9 +14,10 @@ import MessageContent from './MessageContent';
 
 interface ContentBlockProps extends AssistantContentBlock {
   assistantId: string;
+  disableEditing?: boolean;
 }
 const ContentBlock = memo<ContentBlockProps>(
-  ({ id, tools, content, imageList, reasoning, error, assistantId }) => {
+  ({ id, tools, content, imageList, reasoning, error, assistantId, disableEditing }) => {
     const errorContent = useErrorContent(error);
     const showImageItems = !!imageList && imageList.length > 0;
     const [isReasoning, deleteMessage, continueGeneration] = useConversationStore((s) => [
@@ -33,18 +34,31 @@ const ContentBlock = memo<ContentBlockProps>(
       continueGeneration(assistantId);
     }, [id]);
 
-    if (error && (content === LOADING_FLAT || !content))
+    if (error && (content === LOADING_FLAT || !content)) {
       return (
         <ErrorContent
           error={
             errorContent && error && (content === LOADING_FLAT || !content)
-              ? errorContent
+              ? {
+                  ...errorContent,
+                  extra: error?.body && (
+                    <Highlighter
+                      actionIconSize={'small'}
+                      language={'json'}
+                      padding={8}
+                      variant={'borderless'}
+                    >
+                      {JSON.stringify(error?.body, null, 2)}
+                    </Highlighter>
+                  ),
+                }
               : undefined
           }
           id={id}
           onRegenerate={handleRegenerate}
         />
       );
+    }
 
     return (
       <Flexbox gap={8} id={id}>
@@ -57,7 +71,7 @@ const ContentBlock = memo<ContentBlockProps>(
         {showImageItems && <ImageFileListViewer items={imageList} />}
 
         {/* Tools */}
-        {hasTools && <Tools messageId={id} tools={tools} />}
+        {hasTools && <Tools disableEditing={disableEditing} messageId={id} tools={tools} />}
       </Flexbox>
     );
   },

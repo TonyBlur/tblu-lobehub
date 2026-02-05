@@ -7,7 +7,7 @@ import { systemStatusSelectors } from '@/store/global/selectors';
 /**
  * Fetch topics for the current session (agent or group)
  */
-export const useFetchTopics = () => {
+export const useFetchTopics = (options?: { excludeTriggers?: string[] }) => {
   const isInbox = useAgentStore(builtinAgentSelectors.isInboxAgent);
   const [activeAgentId, activeGroupId, useFetchTopicsHook] = useChatStore((s) => [
     s.activeAgentId,
@@ -20,13 +20,16 @@ export const useFetchTopics = () => {
   // If in group session, use groupId; otherwise use agentId
   const { isValidating, data } = useFetchTopicsHook(true, {
     agentId: activeAgentId,
+    ...(options?.excludeTriggers && options.excludeTriggers.length > 0
+      ? { excludeTriggers: options.excludeTriggers }
+      : {}),
     groupId: activeGroupId,
     isInbox: activeGroupId ? false : isInbox,
     pageSize: topicPageSize,
   });
 
   return {
-    // isRevalidating: 有缓存数据，后台正在更新
+    // isRevalidating: has cached data, updating in background
     isRevalidating: isValidating && !!data,
   };
 };

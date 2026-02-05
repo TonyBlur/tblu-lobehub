@@ -3,14 +3,30 @@ import { DEFAULT_AGENT_CONFIG } from '@lobechat/const';
 import { type LobeChatDatabase } from '@lobechat/database';
 import { type AgentItem, type LobeAgentConfig } from '@lobechat/types';
 import { cleanObject, merge } from '@lobechat/utils';
+import debug from 'debug';
 import type { PartialDeep } from 'type-fest';
 
 import { AgentModel } from '@/database/models/agent';
 import { SessionModel } from '@/database/models/session';
 import { UserModel } from '@/database/models/user';
+import { getRedisConfig } from '@/envs/redis';
+import { RedisKeyNamespace, RedisKeys, initializeRedisWithPrefix, isRedisEnabled } from '@/libs/redis';
 import { getServerDefaultAgentConfig } from '@/server/globalConfig';
 
 import { type UpdateAgentResult } from './type';
+
+const log = debug('lobe-agent:service');
+
+/**
+ * Agent config with required id field.
+ * Used when returning agent config from database (id is always present).
+ */
+export type AgentConfigWithId = LobeAgentConfig & { id: string };
+
+interface AgentWelcomeData {
+  openQuestions: string[];
+  welcomeMessage: string;
+}
 
 /**
  * Agent Service
@@ -69,7 +85,8 @@ export class AgentService {
   }
 
   /**
-   * Get agent config by ID with default config merged.
+   * Get agent config by ID or slug with default config merged.
+   * Supports both agentId and slug lookup.
    *
    * The returned agent config is merged with:
    * 1. DEFAULT_AGENT_CONFIG (hardcoded defaults)
@@ -77,12 +94,69 @@ export class AgentService {
    * 3. User's defaultAgentConfig (from user settings)
    * 4. The actual agent config from database
    */
-  async getAgentConfigById(agentId: string) {
+  async getAgentConfig(idOrSlug: string): Promise<AgentConfigWithId | null> {
     const [agent, defaultAgentConfig] = await Promise.all([
-      this.agentModel.getAgentConfigById(agentId),
+      this.agentModel.getAgentConfig(idOrSlug),
       this.userModel.getUserSettingsDefaultAgentConfig(),
     ]);
-    return this.mergeDefaultConfig(agent, defaultAgentConfig);
+
+    return this.mergeDefaultConfig(agent, defaultAgentConfig) as AgentConfigWithId | null;
+  }
+
+  /**
+   * Get agent config by ID with default config merged.
+   *
+   * The returned agent config is merged with:
+   * 1. DEFAULT_AGENT_CONFIG (hardcoded defaults)
+   * 2. Server's globalDefaultAgentConfig (from environment variable DEFAULT_AGENT_CONFIG)
+   * 3. User's defaultAgentConfig (from user settings)
+   * 4. The actual agent config from database
+   * 5. AI-generated welcome data from Redis (if available)
+   */
+  async getAgentConfigById(agentId: string) {
+    const [agent, defaultAgentConfig, welcomeData] = await Promise.all([
+      this.agentModel.getAgentConfigById(agentId),
+      this.userModel.getUserSettingsDefaultAgentConfig(),
+      this.getAgentWelcomeFromRedis(agentId),
+    ]);
+
+    const config = this.mergeDefaultConfig(agent, defaultAgentConfig);
+    if (!config) return null;
+
+    // Merge AI-generated welcome data if available
+    if (welcomeData) {
+      return {
+        ...config,
+        openingMessage: welcomeData.welcomeMessage,
+        openingQuestions: welcomeData.openQuestions,
+      };
+    }
+
+    return config;
+  }
+
+  /**
+   * Get AI-generated welcome data from Redis
+   * Returns null if Redis is disabled or data doesn't exist
+   */
+  private async getAgentWelcomeFromRedis(agentId: string): Promise<AgentWelcomeData | null> {
+    try {
+      const redisConfig = getRedisConfig();
+      if (!isRedisEnabled(redisConfig)) return null;
+
+      const redis = await initializeRedisWithPrefix(redisConfig, RedisKeyNamespace.AI_GENERATION);
+      if (!redis) return null;
+
+      const key = RedisKeys.aiGeneration.agentWelcome(agentId);
+      const value = await redis.get(key);
+      if (!value) return null;
+
+      return JSON.parse(value) as AgentWelcomeData;
+    } catch (error) {
+      // Log error for observability but don't break agent retrieval
+      log('Failed to get agent welcome from Redis for agent %s: %O', agentId, error);
+      return null;
+    }
   }
 
   /**

@@ -1,6 +1,6 @@
 'use client';
 
-import { ActionIcon, type ActionIconProps } from '@lobehub/ui';
+import { ActionIcon, type ActionIconProps, type PopoverTrigger } from '@lobehub/ui';
 import { isUndefined } from 'es-toolkit/compat';
 import { memo } from 'react';
 import useMergeState from 'use-merge-value';
@@ -12,12 +12,12 @@ import ActionDropdown, { type ActionDropdownProps } from './ActionDropdown';
 import ActionPopover, { type ActionPopoverProps } from './ActionPopover';
 
 interface ActionProps extends Omit<ActionIconProps, 'popover'> {
-  dropdown?: ActionDropdownProps;
+  dropdown?: Omit<ActionDropdownProps, 'children'>;
   onOpenChange?: (open: boolean) => void;
   open?: boolean;
   popover?: ActionPopoverProps;
   showTooltip?: boolean;
-  trigger?: ActionDropdownProps['trigger'];
+  trigger?: PopoverTrigger;
 }
 
 const Action = memo<ActionProps>(

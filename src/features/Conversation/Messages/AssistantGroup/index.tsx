@@ -2,12 +2,13 @@
 
 import type { AssistantContentBlock } from '@lobechat/types';
 import isEqual from 'fast-deep-equal';
-import { type MouseEventHandler, memo, useCallback, useMemo } from 'react';
+import { type MouseEventHandler, Suspense, memo, useCallback, useMemo } from 'react';
 
 import { MESSAGE_ACTION_BAR_PORTAL_ATTRIBUTES } from '@/const/messageActionPortal';
 import { ChatItem } from '@/features/Conversation/ChatItem';
 import { useNewScreen } from '@/features/Conversation/Messages/components/useNewScreen';
 import { useOpenChatSettings } from '@/hooks/useInterceptingRoutes';
+import dynamic from '@/libs/next/dynamic';
 import { useAgentStore } from '@/store/agent';
 import { builtinAgentSelectors } from '@/store/agent/selectors';
 import { useGlobalStore } from '@/store/global';
@@ -21,8 +22,11 @@ import {
 import FileListViewer from '../User/components/FileListViewer';
 import Usage from '../components/Extras/Usage';
 import MessageBranch from '../components/MessageBranch';
-import EditState from './components/EditState';
 import Group from './components/Group';
+
+const EditState = dynamic(() => import('./components/EditState'), {
+  ssr: false,
+});
 
 const actionBarHolder = (
   <div
@@ -64,7 +68,12 @@ const GroupMessage = memo<GroupMessageProps>(({ id, index, disableEditing, isLat
   // Get editing state from ConversationStore
   const editing = useConversationStore(messageStateSelectors.isMessageEditing(contentId || ''));
   const creating = useConversationStore(messageStateSelectors.isMessageCreating(id));
-  const newScreen = useNewScreen({ creating, isLatestItem });
+  const generating = useConversationStore(messageStateSelectors.isMessageGenerating(id));
+  const { minHeight } = useNewScreen({
+    creating: creating || generating,
+    isLatestItem,
+    messageId: id,
+  });
 
   const setMessageItemActionElementPortialContext = useSetMessageItemActionElementPortialContext();
   const setMessageItemActionTypeContext = useSetMessageItemActionTypeContext();
@@ -92,11 +101,6 @@ const GroupMessage = memo<GroupMessageProps>(({ id, index, disableEditing, isLat
     }
   }, [isInbox]);
 
-  // If editing, show edit state
-  if (editing && contentId) {
-    return <EditState content={lastAssistantMsg?.content} id={contentId} />;
-  }
-
   return (
     <ChatItem
       actions={
@@ -114,7 +118,7 @@ const GroupMessage = memo<GroupMessageProps>(({ id, index, disableEditing, isLat
         )
       }
       avatar={avatar}
-      newScreen={newScreen}
+      newScreenMinHeight={minHeight}
       onAvatarClick={onAvatarClick}
       onMouseEnter={onMouseEnter}
       placement={'left'}
@@ -139,6 +143,9 @@ const GroupMessage = memo<GroupMessageProps>(({ id, index, disableEditing, isLat
       {model && (
         <Usage model={model} performance={performance} provider={provider!} usage={usage} />
       )}
+      <Suspense fallback={null}>
+        {editing && contentId && <EditState content={lastAssistantMsg?.content} id={contentId} />}
+      </Suspense>
     </ChatItem>
   );
 }, isEqual);

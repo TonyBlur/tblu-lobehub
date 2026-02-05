@@ -10,12 +10,13 @@ const doubaoChatModels: AIChatModelCard[] = [
       vision: true,
     },
     config: {
-      deploymentName: 'doubao-seed-1-8-251215',
+      deploymentName: 'doubao-seed-1-8-251228',
     },
     contextWindowTokens: 256_000,
     description:
-      'Doubao-Seed-1.8 有着更强的多模态理解能力和 Agent 能力，支持文本/图片/视频输入与上下文缓存，可在复杂任务中提供更出色的表现。',
+      'Doubao-Seed-1.8 has stronger multimodal understanding and Agent capabilities, supports text/image/video input and context caching, and can deliver excellent performance in complex tasks.',
     displayName: 'Doubao Seed 1.8',
+    enabled: true,
     id: 'doubao-seed-1.8',
     maxOutput: 64_000,
     pricing: {
@@ -122,11 +123,80 @@ const doubaoChatModels: AIChatModelCard[] = [
       reasoning: true,
     },
     config: {
+      deploymentName: 'glm-4-7-251222',
+    },
+    contextWindowTokens: 200_000,
+    description:
+      'GLM-4.7 is the latest flagship model from Zhipu AI. GLM-4.7 enhances coding capabilities, long-term task planning, and tool collaboration for Agentic Coding scenarios, achieving leading performance among open-source models in multiple public benchmarks. General capabilities are improved, with more concise and natural responses, and more immersive writing. In complex agent tasks, instruction following is stronger during tool calls, and the aesthetics of Artifacts and Agentic Coding frontend, as well as long-term task completion efficiency, are further enhanced. • Stronger programming capabilities: Significantly improved multi-language coding and terminal agent performance; GLM-4.7 can now implement "think first, then act" mechanisms in programming frameworks like Claude Code, Kilo Code, TRAE, Cline, and Roo Code, with more stable performance on complex tasks. • Frontend aesthetics improvement: GLM-4.7 shows significant progress in frontend generation quality, capable of generating websites, PPTs, and posters with better visual appeal. • Stronger tool calling capabilities: GLM-4.7 enhances tool calling abilities, scoring 67 in BrowseComp web task evaluation; achieving 84.7 in τ²-Bench interactive tool calling evaluation, surpassing Claude Sonnet 4.5 as the open-source SOTA. • Reasoning capability improvement: Significantly enhanced math and reasoning abilities, scoring 42.8% in the HLE ("Humanity\'s Last Exam") benchmark, a 41% improvement over GLM-4.6, surpassing GPT-5.1. • General capability enhancement: GLM-4.7 conversations are more concise, intelligent, and humane; writing and role-playing are more literary and immersive.',
+    displayName: 'GLM-4.7',
+    id: 'glm-4-7',
+    maxOutput: 128_000,
+    pricing: {
+      currency: 'CNY',
+      units: [
+        {
+          lookup: {
+            prices: {
+              '[0, 0.032]_[0, 0.0002]': 2,
+              '[0, 0.032]_[0.0002, infinity]': 3,
+              '[0.032, 0.2]_[0, infinity]': 4,
+            },
+            pricingParams: ['textInputRange', 'textOutputRange'],
+          },
+          name: 'textInput',
+          strategy: 'lookup',
+          unit: 'millionTokens',
+        },
+        {
+          lookup: {
+            prices: {
+              '[0, 0.032]_[0, 0.0002]': 8,
+              '[0, 0.032]_[0.0002, infinity]': 14,
+              '[0.032, 0.2]_[0, infinity]': 16,
+            },
+            pricingParams: ['textInputRange', 'textOutputRange'],
+          },
+          name: 'textOutput',
+          strategy: 'lookup',
+          unit: 'millionTokens',
+        },
+        {
+          lookup: {
+            prices: {
+              '[0, 0.032]_[0, 0.0002]': 0.4,
+              '[0, 0.032]_[0.0002, infinity]': 0.6,
+              '[0.032, 0.2]_[0, infinity]': 0.8,
+            },
+            pricingParams: ['textInputRange', 'textOutputRange'],
+          },
+          name: 'textInput_cacheRead',
+          strategy: 'lookup',
+          unit: 'millionTokens',
+        },
+        {
+          lookup: { prices: { '1h': 0.017 }, pricingParams: ['ttl'] },
+          name: 'textInput_cacheWrite',
+          strategy: 'lookup',
+          unit: 'millionTokens',
+        },
+      ],
+    },
+    settings: {
+      extendParams: ['enableReasoning'],
+    },
+    type: 'chat',
+  },
+  {
+    abilities: {
+      functionCall: true,
+      reasoning: true,
+    },
+    config: {
       deploymentName: 'deepseek-v3-2-251201',
     },
     contextWindowTokens: 131_072,
     description:
-      'DeepSeek-V3.2 是深度求索推出的首个将思考融入工具使用的混合推理模型，用高效架构省算力、大规模强化学习提能力、大规模合成任务数据强泛化，三者结合性能媲美 GPT-5-High，输出长度大幅降低，显著减少了计算开销与用户等待时间。',
+      'DeepSeek-V3.2 is the first hybrid reasoning model from DeepSeek that integrates thinking into tool usage. It uses efficient architecture to save computation, large-scale reinforcement learning to enhance capabilities, and large-scale synthetic task data to strengthen generalization. The combination of these three achieves performance comparable to GPT-5-High, with significantly reduced output length, notably decreasing computational overhead and user wait times.',
     displayName: 'DeepSeek V3.2',
     enabled: true,
     id: 'deepseek-v3.2',

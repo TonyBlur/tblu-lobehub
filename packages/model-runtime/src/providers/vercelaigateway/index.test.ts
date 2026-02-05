@@ -71,7 +71,7 @@ describe('LobeVercelAIGatewayAI - custom features', () => {
     it('should add reasoning_effort to providerOptions.openai', async () => {
       await instance.chat({
         messages: [{ content: 'Hello', role: 'user' }],
-        model: 'o1-preview',
+        model: 'openai/o1-preview',
         reasoning_effort: 'high',
       });
 
@@ -83,7 +83,7 @@ describe('LobeVercelAIGatewayAI - custom features', () => {
     it('should handle both reasoning_effort and verbosity', async () => {
       await instance.chat({
         messages: [{ content: 'Hello', role: 'user' }],
-        model: 'o1-preview',
+        model: 'openai/o1-preview',
         reasoning_effort: 'medium',
         verbosity: 'low',
       });
@@ -96,7 +96,7 @@ describe('LobeVercelAIGatewayAI - custom features', () => {
     it('should handle verbosity without reasoning_effort', async () => {
       await instance.chat({
         messages: [{ content: 'Hello', role: 'user' }],
-        model: 'gpt-4o',
+        model: 'openai/gpt-4o',
         verbosity: 'high',
       });
 
@@ -119,13 +119,13 @@ describe('LobeVercelAIGatewayAI - custom features', () => {
       await instance.chat({
         max_tokens: 1000,
         messages: [{ content: 'Hello', role: 'user' }],
-        model: 'o1-preview',
+        model: 'openai/o1-preview',
         reasoning_effort: 'high',
         temperature: 0.7,
       });
 
       const calledPayload = (instance['client'].chat.completions.create as any).mock.calls[0][0];
-      expect(calledPayload.model).toBe('o1-preview');
+      expect(calledPayload.model).toBe('openai/o1-preview');
       expect(calledPayload.temperature).toBe(0.7);
       expect(calledPayload.max_tokens).toBe(1000);
       expect(calledPayload.reasoning_effort).toBeUndefined();
@@ -138,7 +138,7 @@ describe('LobeVercelAIGatewayAI - custom features', () => {
         vi.clearAllMocks();
         await instance.chat({
           messages: [{ content: 'Hello', role: 'user' }],
-          model: 'o1-preview',
+          model: 'openai/o1-preview',
           reasoning_effort: effort,
         } as any);
 
@@ -243,6 +243,53 @@ describe('LobeVercelAIGatewayAI - custom features', () => {
       expect(model?.pricing).toBeDefined();
       expect(model?.pricing?.units).toBeDefined();
       expect(Array.isArray(model?.pricing?.units)).toBe(true);
+    });
+
+    it('should map extendParams for gpt-5.x reasoning models', async () => {
+      const mockModelData: VercelAIGatewayModelCard[] = [
+        {
+          id: 'openai/gpt-5.2-mini',
+          name: 'GPT-5.2 Mini',
+          pricing: { input: 0.000_003, output: 0.000_015 },
+          tags: ['reasoning'],
+          type: 'chat',
+        },
+        {
+          id: 'openai/gpt-5.1-mini',
+          name: 'GPT-5.1 Mini',
+          pricing: { input: 0.000_003, output: 0.000_015 },
+          tags: ['reasoning'],
+          type: 'chat',
+        },
+        {
+          id: 'openai/gpt-5-mini',
+          name: 'GPT-5 Mini',
+          pricing: { input: 0.000_003, output: 0.000_015 },
+          tags: ['reasoning'],
+          type: 'chat',
+        },
+      ];
+
+      const mockClient = {
+        models: {
+          list: vi.fn().mockResolvedValue({ data: mockModelData }),
+        },
+      };
+
+      const models = await params.models({ client: mockClient as any });
+      const gpt52 = models.find((m) => m.id === 'openai/gpt-5.2-mini');
+      const gpt51 = models.find((m) => m.id === 'openai/gpt-5.1-mini');
+      const gpt5 = models.find((m) => m.id === 'openai/gpt-5-mini');
+
+      expect(gpt52?.settings?.extendParams).toEqual(
+        expect.arrayContaining(['gpt5_2ReasoningEffort', 'textVerbosity']),
+      );
+      expect(gpt51?.settings?.extendParams).toEqual(
+        expect.arrayContaining(['gpt5_1ReasoningEffort', 'textVerbosity']),
+      );
+      expect(gpt5?.settings?.extendParams).toEqual(
+        expect.arrayContaining(['gpt5ReasoningEffort', 'textVerbosity']),
+      );
     });
 
     it('should handle models with missing pricing', async () => {

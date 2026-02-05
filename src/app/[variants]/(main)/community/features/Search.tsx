@@ -6,10 +6,9 @@ import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import urlJoin from 'url-join';
 
-import { usePathname } from '@/app/[variants]/(main)/hooks/usePathname';
-import { useQuery } from '@/app/[variants]/(main)/hooks/useQuery';
 import { withSuspense } from '@/components/withSuspense';
 import { useQueryRoute } from '@/hooks/useQueryRoute';
+import { usePathname, useQuery } from '@/libs/router/navigation';
 
 const prefixCls = 'ant';
 
@@ -34,7 +33,7 @@ const Search = memo<StoreSearchBarProps>(() => {
   const { q } = useQuery() as { q?: string };
   const router = useQueryRoute();
   const [word, setWord] = useState<string>(q || '');
-  const activeTab = pathname.split('/')[2] || 'assistant';
+  const activeTab = pathname.split('/')[2] || 'agent';
   const handleSearch = (value: string) => {
     router.push(urlJoin('/community', activeTab), {
       query: value ? { q: value } : {},

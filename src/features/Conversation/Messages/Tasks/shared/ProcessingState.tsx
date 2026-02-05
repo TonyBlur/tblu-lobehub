@@ -3,10 +3,11 @@
 import { type TaskDetail } from '@lobechat/types';
 import { Flexbox, Text } from '@lobehub/ui';
 import { createStaticStyles, keyframes } from 'antd-style';
-import { Footprints, Loader2, Timer, Wrench } from 'lucide-react';
+import { Footprints, Timer, Wrench } from 'lucide-react';
 import { memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import NeuralNetworkLoading from '@/components/NeuralNetworkLoading';
 import { useChatStore } from '@/store/chat';
 
 import { MAX_PROGRESS, PROGRESS_INCREMENT, PROGRESS_INTERVAL } from './constants';
@@ -22,24 +23,12 @@ const shimmer = keyframes`
   }
 `;
 
-const spin = keyframes`
-  from {
-    transform: rotate(0deg);
-  }
-
-  to {
-    transform: rotate(360deg);
-  }
-`;
-
 const styles = createStaticStyles(({ css, cssVar }) => ({
   activityRow: css`
     display: flex;
     gap: 8px;
     align-items: center;
-
     padding-block: 8px;
-    padding-inline: 16px;
   `,
   footer: css`
     padding-block-start: 8px;
@@ -52,7 +41,7 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
 
     height: 3px;
     margin-block: 12px;
-    margin-inline: 16px;
+    margin-inline: 8px;
     border-radius: 2px;
 
     background: ${cssVar.colorFillSecondary};
@@ -96,9 +85,6 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
     height: 3px;
     border-radius: 50%;
     background: ${cssVar.colorTextQuaternary};
-  `,
-  spin: css`
-    animation: ${spin} 1s linear infinite;
   `,
 }));
 
@@ -215,10 +201,12 @@ const ProcessingState = memo<ProcessingStateProps>(
           {/* Current Activity */}
           {currentActivity && (
             <div className={styles.activityRow}>
-              <Text as={'span'} fontSize={12} type={'secondary'}>
-                <Loader2 className={styles.spin} size={12} />
-                <span>{renderActivityText()}</span>
-              </Text>
+              <Flexbox align={'center'} gap={4} horizontal>
+                <NeuralNetworkLoading size={14} />
+                <Text as={'span'} fontSize={12} type={'secondary'}>
+                  {renderActivityText()}
+                </Text>
+              </Flexbox>
               {currentActivity.contentPreview && (
                 <Text
                   as={'span'}
@@ -297,7 +285,7 @@ const ProcessingState = memo<ProcessingStateProps>(
         {/* Current Activity */}
         {currentActivity && (
           <Flexbox align="center" gap={8} horizontal>
-            <Loader2 className={styles.spin} size={12} />
+            <NeuralNetworkLoading size={14} />
             <Text
               as={'span'}
               ellipsis

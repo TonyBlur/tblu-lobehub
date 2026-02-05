@@ -8,23 +8,23 @@ const logger = createLogger('controllers:McpInstallCtr');
 const protocolHandler = createProtocolHandler('plugin');
 
 /**
- * 验证 MCP Schema 对象结构
+ * Validate MCP Schema object structure
  */
 function validateMcpSchema(schema: any): schema is McpSchema {
   if (!schema || typeof schema !== 'object') return false;
 
-  // 必填字段验证
+  // Required field validation
   if (typeof schema.identifier !== 'string' || !schema.identifier) return false;
   if (typeof schema.name !== 'string' || !schema.name) return false;
   if (typeof schema.author !== 'string' || !schema.author) return false;
   if (typeof schema.description !== 'string' || !schema.description) return false;
   if (typeof schema.version !== 'string' || !schema.version) return false;
 
-  // 可选字段验证
+  // Optional field validation
   if (schema.homepage !== undefined && typeof schema.homepage !== 'string') return false;
   if (schema.icon !== undefined && typeof schema.icon !== 'string') return false;
 
-  // config 字段验证
+  // config field validation
   if (!schema.config || typeof schema.config !== 'object') return false;
   const config = schema.config;
 
@@ -35,13 +35,13 @@ function validateMcpSchema(schema: any): schema is McpSchema {
   } else if (config.type === 'http') {
     if (typeof config.url !== 'string' || !config.url) return false;
     try {
-      new URL(config.url); // 验证URL格式
+      new URL(config.url); // Validate URL format
     } catch {
       return false;
     }
     if (config.headers !== undefined && typeof config.headers !== 'object') return false;
   } else {
-    return false; // 未知的 config type
+    return false; // Unknown config type
   }
 
   return true;
@@ -54,19 +54,19 @@ interface McpInstallParams {
 }
 
 /**
- * MCP 插件安装控制器
- * 负责处理 MCP 插件安装流程
+ * MCP plugin installation controller
+ * Responsible for handling MCP plugin installation process
  */
 export default class McpInstallController extends ControllerModule {
   /**
-   * 处理 MCP 插件安装请求
-   * @param parsedData 解析后的协议数据
-   * @returns 是否处理成功
+   * Handle MCP plugin installation request
+   * @param parsedData Parsed protocol data
+   * @returns Whether processing succeeded
    */
   @protocolHandler('install')
   public async handleInstallRequest(parsedData: McpInstallParams): Promise<boolean> {
     try {
-      // 从参数中提取必需字段
+      // Extract required fields from parameters
       const { id, schema: schemaParam, marketId } = parsedData;
 
       if (!id) {
@@ -76,11 +76,11 @@ export default class McpInstallController extends ControllerModule {
         return false;
       }
 
-      // 映射协议来源
+      // Map protocol source
 
       const isOfficialMarket = marketId === 'lobehub';
 
-      // 对于官方市场，schema 是可选的；对于第三方市场，schema 是必需的
+      // For official marketplace, schema is optional; for third-party marketplace, schema is required
       if (!isOfficialMarket && !schemaParam) {
         logger.warn(`🔧 [McpInstall] Schema is required for third-party marketplace:`, {
           marketId,
@@ -90,7 +90,7 @@ export default class McpInstallController extends ControllerModule {
 
       let mcpSchema: McpSchema | undefined;
 
-      // 如果提供了 schema 参数，则解析和验证
+      // If schema parameter is provided, parse and validate
       if (schemaParam) {
         try {
           mcpSchema = JSON.parse(schemaParam);
@@ -104,7 +104,7 @@ export default class McpInstallController extends ControllerModule {
           return false;
         }
 
-        // 验证 identifier 与 id 参数匹配
+        // Verify identifier matches id parameter
         if (mcpSchema.identifier !== id) {
           logger.error(`🔧 [McpInstall] Schema identifier does not match URL id parameter:`, {
             schemaId: mcpSchema.identifier,
@@ -122,7 +122,7 @@ export default class McpInstallController extends ControllerModule {
         pluginVersion: mcpSchema?.version || 'Unknown',
       });
 
-      // 广播安装请求到前端
+      // Broadcast installation request to frontend
       const installRequest = {
         marketId,
         pluginId: id,
@@ -136,7 +136,7 @@ export default class McpInstallController extends ControllerModule {
         pluginName: installRequest.schema?.name || 'Unknown',
       });
 
-      // 通过应用实例广播到前端
+      // Broadcast to frontend via app instance
       if (this.app?.browserManager) {
         this.app.browserManager.broadcastToWindow('app', 'mcpInstallRequest', installRequest);
         logger.debug(`🔧 [McpInstall] Install request broadcasted successfully`);

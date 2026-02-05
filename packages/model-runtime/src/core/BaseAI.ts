@@ -13,7 +13,6 @@ import {
   GenerateObjectPayload,
   ModelRequestOptions,
   PullModelParams,
-  TextToImagePayload,
   TextToSpeechOptions,
   TextToSpeechPayload,
 } from '../types';
@@ -28,7 +27,6 @@ export interface LobeRuntimeAI {
 
   models?(): Promise<any>;
 
-  textToImage?: (payload: TextToImagePayload) => Promise<string[]>;
   createImage?: (payload: CreateImagePayload) => Promise<CreateImageResponse>;
 
   textToSpeech?: (
@@ -36,7 +34,7 @@ export interface LobeRuntimeAI {
     options?: TextToSpeechOptions,
   ) => Promise<ArrayBuffer>;
 
-  // 模型管理相关接口
+  // Model management related interface
   pullModel?(params: PullModelParams, options?: ModelRequestOptions): Promise<Response>;
 }
 /* eslint-enabled */

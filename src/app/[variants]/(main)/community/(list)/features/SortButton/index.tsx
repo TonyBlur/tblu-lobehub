@@ -1,12 +1,16 @@
-import { Dropdown, type DropdownMenuItemType, Icon , Button } from '@lobehub/ui';
+import {
+  Button,
+  type DropdownItem,
+  DropdownMenu,
+  type DropdownMenuCheckboxItem,
+  Icon,
+} from '@lobehub/ui';
 import { ArrowDownWideNarrow, ChevronDown } from 'lucide-react';
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { usePathname } from '@/app/[variants]/(main)/hooks/usePathname';
-import { useQuery } from '@/app/[variants]/(main)/hooks/useQuery';
 import { useQueryRoute } from '@/hooks/useQueryRoute';
-import { useMarketAuth } from '@/layout/AuthProvider/MarketAuth';
+import { usePathname, useQuery } from '@/libs/router/navigation';
 import {
   AssistantSorts,
   DiscoverTab,
@@ -21,47 +25,32 @@ const SortButton = memo(() => {
   const pathname = usePathname();
   const { sort } = useQuery();
   const router = useQueryRoute();
-  const { isAuthenticated, getCurrentUserInfo } = useMarketAuth();
   const activeTab = useMemo(() => pathname.split('community/')[1] as DiscoverTab, [pathname]);
-  const items = useMemo(() => {
+  type SortItem = Extract<DropdownItem, { type?: 'item' }> & {
+    key: string;
+  };
+
+  const items = useMemo<SortItem[]>(() => {
     switch (activeTab) {
       case DiscoverTab.Assistants: {
-        const baseItems = [
+        return [
           {
-            key: AssistantSorts.CreatedAt,
-            label: t('assistants.sorts.createdAt'),
+            key: AssistantSorts.Recommended,
+            label: t('assistants.sorts.recommended'),
           },
           {
-            key: AssistantSorts.Title,
-            label: t('assistants.sorts.title'),
+            key: AssistantSorts.UpdatedAt,
+            label: t('assistants.sorts.updatedAt'),
           },
           {
-            key: AssistantSorts.Identifier,
-            label: t('assistants.sorts.identifier'),
+            key: AssistantSorts.MostUsage,
+            label: t('assistants.sorts.mostUsage'),
           },
           {
-            key: AssistantSorts.TokenUsage,
-            label: t('assistants.sorts.tokenUsage'),
-          },
-          {
-            key: AssistantSorts.PluginCount,
-            label: t('assistants.sorts.pluginCount'),
-          },
-          {
-            key: AssistantSorts.KnowledgeCount,
-            label: t('assistants.sorts.knowledgeCount'),
+            key: AssistantSorts.HaveSkills,
+            label: t('assistants.sorts.haveSkills'),
           },
         ];
-
-        // Only add "My Own" option if user is authenticated
-        if (isAuthenticated) {
-          baseItems.push({
-            key: AssistantSorts.MyOwn,
-            label: t('assistants.sorts.myown'),
-          });
-        }
-
-        return baseItems;
       }
       case DiscoverTab.Plugins: {
         return [
@@ -126,6 +115,10 @@ const SortButton = memo(() => {
       case DiscoverTab.Mcp: {
         return [
           {
+            key: McpSorts.Recommended,
+            label: t('mcp.sorts.recommended'),
+          },
+          {
             key: McpSorts.IsFeatured,
             label: t('mcp.sorts.isFeatured'),
           },
@@ -146,8 +139,8 @@ const SortButton = memo(() => {
             label: t('mcp.sorts.updatedAt'),
           },
           {
+            key: McpSorts.CreatedAt,
             label: t('mcp.sorts.createdAt'),
-            value: McpSorts.CreatedAt,
           },
         ];
       }
@@ -155,48 +148,48 @@ const SortButton = memo(() => {
         return [];
       }
     }
-  }, [t, activeTab, isAuthenticated]);
+  }, [t, activeTab]);
 
-  const activeItem: any = useMemo(() => {
+  const activeItem = useMemo<SortItem | undefined>(() => {
     if (sort) {
-      const findItem = items?.find((item: any) => item.key === sort);
+      const findItem = items.find((item) => String(item.key) === sort);
       if (findItem) return findItem;
     }
-    return items?.[0];
+    return items[0];
   }, [items, sort]);
 
   const handleSort = (config: string) => {
-    const query: any = { sort: config };
-
-    // If "My Own" is selected, add ownerId to query
-    if (config === AssistantSorts.MyOwn) {
-      const userInfo = getCurrentUserInfo();
-      console.log('userInfo', userInfo);
-      if (userInfo?.accountId) {
-        query.ownerId = userInfo.accountId;
-      }
-    }
-
-    router.push(pathname, { query });
+    router.push(pathname, { query: { sort: config } });
   };
 
-  if (items?.length === 0) return null;
+  const menuItems = useMemo<DropdownMenuCheckboxItem[]>(
+    () =>
+      items.map(
+        (item): DropdownMenuCheckboxItem => ({
+          checked: item.key === activeItem?.key,
+          closeOnClick: true,
+          key: item.key,
+          label: item.label,
+          onCheckedChange: (checked: boolean) => {
+            if (checked) {
+              handleSort(String(item.key));
+            }
+          },
+          type: 'checkbox',
+        }),
+      ),
+    [activeItem?.key, handleSort, items],
+  );
+
+  if (menuItems.length === 0) return null;
 
   return (
-    <Dropdown
-      menu={{
-        // @ts-expect-error 等待 antd 修复
-        activeKey: activeItem.key,
-        items: items as DropdownMenuItemType[],
-        onClick: ({ key }) => handleSort(key),
-      }}
-      trigger={['click', 'hover']}
-    >
+    <DropdownMenu items={menuItems} trigger="both">
       <Button data-testid="sort-dropdown" icon={<Icon icon={ArrowDownWideNarrow} />} type={'text'}>
-        {activeItem.label}
+        {activeItem?.label ?? menuItems[0]?.label}
         <Icon icon={ChevronDown} />
       </Button>
-    </Dropdown>
+    </DropdownMenu>
   );
 });
 

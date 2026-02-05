@@ -1,4 +1,3 @@
-import type { ThemeMode } from 'antd-style';
 import type { NavigateFunction } from 'react-router-dom';
 
 import { DatabaseLoadingState, type MigrationSQL, type MigrationTableItem } from '@/types/clientDB';
@@ -49,6 +48,7 @@ export enum SettingsTabs {
   Provider = 'provider',
   Proxy = 'proxy',
   Security = 'security',
+  Skill = 'skill',
   Stats = 'stats',
   Storage = 'storage',
   TTS = 'tts',
@@ -77,6 +77,10 @@ export enum ProfileTabs {
 
 export interface SystemStatus {
   /**
+   * Agent Builder panel width
+   */
+  agentBuilderPanelWidth?: number;
+  /**
    * number of agents (defaultList) to display
    */
   agentPageSize?: number;
@@ -90,36 +94,59 @@ export interface SystemStatus {
   expandTopicGroupKeys?: string[];
   fileManagerViewMode?: 'list' | 'masonry';
   filePanelWidth: number;
+  /**
+   * Group Agent Builder panel width
+   */
+  groupAgentBuilderPanelWidth?: number;
   hideGemini2_5FlashImagePreviewChineseWarning?: boolean;
   hidePWAInstaller?: boolean;
   hideThreadLimitAlert?: boolean;
+  hideTopicSharePrivacyWarning?: boolean;
   imagePanelWidth: number;
   imageTopicPanelWidth?: number;
   /**
-   * 应用初始化时不启用 PGLite，只有当用户手动开启时才启用
+   * Do not enable PGLite on app initialization, only enable when user manually turns it on
    */
   isEnablePglite?: boolean;
   isShowCredit?: boolean;
   knowledgeBaseModalViewMode?: 'list' | 'masonry';
   language?: LocaleMode;
   /**
-   * 记住用户最后选择的图像生成模型
+   * Remember user's last selected image generation model
    */
   lastSelectedImageModel?: string;
   /**
-   * 记住用户最后选择的图像生成提供商
+   * Remember user's last selected image generation provider
    */
   lastSelectedImageProvider?: string;
   latestChangelogId?: string;
   leftPanelWidth: number;
   mobileShowPortal?: boolean;
   mobileShowTopic?: boolean;
+  /**
+   * ModelSwitchPanel grouping mode
+   */
+  modelSwitchPanelGroupMode?: 'byModel' | 'byProvider';
+  /**
+   * ModelSwitchPanel width
+   */
+  modelSwitchPanelWidth?: number;
   noWideScreen?: boolean;
+  pageAgentPanelWidth?: number;
   /**
    * number of pages (documents) to display per page
    */
   pagePageSize?: number;
   portalWidth: number;
+  readNotificationSlugs?: string[];
+  /**
+   * Resource Manager column widths
+   */
+  resourceManagerColumnWidths?: {
+    date: number;
+    name: number;
+    size: number;
+  };
   showCommandMenu?: boolean;
   showFilePanel?: boolean;
   showHotkeyHelper?: boolean;
@@ -130,11 +157,7 @@ export interface SystemStatus {
   showSystemRole?: boolean;
   systemRoleExpandedMap: Record<string, boolean>;
   /**
-   * theme mode
-   */
-  themeMode?: ThemeMode;
-  /**
-   * 是否使用短格式显示 token
+   * Whether to display tokens in short format
    */
   tokenDisplayFormatShort?: boolean;
   /**
@@ -154,20 +177,30 @@ export interface GlobalState {
 
   initClientDBProcess?: { costTime?: number; phase: 'wasm' | 'dependencies'; progress: number };
   /**
-   * 客户端数据库初始化状态
-   * 启动时为 Idle，完成为 Ready，报错为 Error
+   * Client database initialization state
+   * Idle on startup, Ready when complete, Error on failure
    */
   initClientDBStage: DatabaseLoadingState;
   isMobile?: boolean;
+  /**
+   * Server version is too old, does not support /api/version endpoint
+   * Need to prompt user to update server
+   */
+  isServerVersionOutdated?: boolean;
   isStatusInit?: boolean;
   latestVersion?: string;
   navigate?: NavigateFunction;
+  /**
+   * Server version number, used to detect client-server version consistency
+   */
+  serverVersion?: string;
   sidebarKey: SidebarTabKey;
   status: SystemStatus;
   statusStorage: AsyncLocalStorage<SystemStatus>;
 }
 
 export const INITIAL_STATUS = {
+  agentBuilderPanelWidth: 360,
   agentPageSize: 10,
   chatInputHeight: 64,
   disabledModelProvidersSortType: 'default',
@@ -176,17 +209,28 @@ export const INITIAL_STATUS = {
   expandSessionGroupKeys: [SessionDefaultGroup.Pinned, SessionDefaultGroup.Default],
   fileManagerViewMode: 'list' as const,
   filePanelWidth: 320,
+  groupAgentBuilderPanelWidth: 360,
   hideGemini2_5FlashImagePreviewChineseWarning: false,
   hidePWAInstaller: false,
   hideThreadLimitAlert: false,
+  hideTopicSharePrivacyWarning: false,
   imagePanelWidth: 320,
   imageTopicPanelWidth: 80,
   knowledgeBaseModalViewMode: 'list' as const,
   leftPanelWidth: 320,
   mobileShowTopic: false,
+  modelSwitchPanelGroupMode: 'byProvider',
+  modelSwitchPanelWidth: 430,
   noWideScreen: true,
+  pageAgentPanelWidth: 360,
   pagePageSize: 20,
   portalWidth: 400,
+  readNotificationSlugs: [],
+  resourceManagerColumnWidths: {
+    date: 160,
+    name: 574,
+    size: 140,
+  },
   showCommandMenu: false,
   showFilePanel: true,
   showHotkeyHelper: false,
@@ -196,7 +240,6 @@ export const INITIAL_STATUS = {
   showRightPanel: true,
   showSystemRole: false,
   systemRoleExpandedMap: {},
-  themeMode: 'auto',
   tokenDisplayFormatShort: true,
   topicPageSize: 20,
   zenMode: false,

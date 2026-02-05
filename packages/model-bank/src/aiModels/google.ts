@@ -1,4 +1,4 @@
-import { CHAT_MODEL_IMAGE_GENERATION_PARAMS, ModelParamsSchema } from '../standard-parameters';
+import { ModelParamsSchema } from '../standard-parameters';
 import { AIChatModelCard, AIImageModelCard } from '../types';
 
 /**
@@ -182,7 +182,8 @@ const googleChatModels: AIChatModelCard[] = [
       vision: true,
     },
     contextWindowTokens: 1_048_576 + 65_536,
-    description: 'Gemini 3 Flash 是为速度而打造的最智能的模型，将前沿智能与卓越的搜索接地相结合。',
+    description:
+      'Gemini 3 Flash is the smartest model built for speed, combining cutting-edge intelligence with excellent search grounding.',
     displayName: 'Gemini 3 Flash Preview',
     enabled: true,
     id: 'gemini-3-flash-preview',
@@ -486,32 +487,6 @@ const googleChatModels: AIChatModelCard[] = [
   },
   {
     abilities: {
-      imageOutput: true,
-      vision: true,
-    },
-    contextWindowTokens: 32_768 + 8192,
-    description:
-      'Nano Banana is Google’s newest, fastest, and most efficient native multimodal model, enabling conversational image generation and editing.',
-    displayName: 'Nano Banana (Preview)',
-    id: 'gemini-2.5-flash-image-preview',
-    maxOutput: 8192,
-    pricing: {
-      approximatePricePerImage: 0.039,
-      units: [
-        { name: 'textInput', rate: 0.3, strategy: 'fixed', unit: 'millionTokens' },
-        { name: 'imageInput', rate: 0.3, strategy: 'fixed', unit: 'millionTokens' },
-        { name: 'textOutput', rate: 2.5, strategy: 'fixed', unit: 'millionTokens' },
-        { name: 'imageOutput', rate: 30, strategy: 'fixed', unit: 'millionTokens' },
-      ],
-    },
-    releasedAt: '2025-08-26',
-    settings: {
-      extendParams: ['imageAspectRatio'],
-    },
-    type: 'chat',
-  },
-  {
-    abilities: {
       functionCall: true,
       reasoning: true,
       search: true,
@@ -671,25 +646,6 @@ const googleChatModels: AIChatModelCard[] = [
       units: [
         { name: 'textInput', rate: 0.075, strategy: 'fixed', unit: 'millionTokens' },
         { name: 'textOutput', rate: 0.3, strategy: 'fixed', unit: 'millionTokens' },
-      ],
-    },
-    releasedAt: '2025-02-05',
-    type: 'chat',
-  },
-  {
-    abilities: {
-      imageOutput: true,
-      vision: true,
-    },
-    contextWindowTokens: 1_048_576 + 8192,
-    description: 'A Gemini 2.0 Flash variant optimized for cost efficiency and low latency.',
-    displayName: 'Gemini 2.0 Flash Exp',
-    id: 'gemini-2.0-flash-exp',
-    maxOutput: 8192,
-    pricing: {
-      units: [
-        { name: 'textInput', rate: 0, strategy: 'fixed', unit: 'millionTokens' },
-        { name: 'textOutput', rate: 0, strategy: 'fixed', unit: 'millionTokens' },
       ],
     },
     releasedAt: '2025-02-05',
@@ -951,28 +907,12 @@ const googleImageModels: AIImageModelCard[] = [
   {
     displayName: 'Nano Banana',
     id: 'gemini-2.5-flash-image:image',
+    enabled: true,
     type: 'image',
     description:
       'Nano Banana is Google’s newest, fastest, and most efficient native multimodal model, enabling conversational image generation and editing.',
     releasedAt: '2025-08-26',
     parameters: nanoBananaParameters,
-    pricing: {
-      approximatePricePerImage: 0.039,
-      units: [
-        { name: 'textInput', rate: 0.3, strategy: 'fixed', unit: 'millionTokens' },
-        { name: 'textOutput', rate: 2.5, strategy: 'fixed', unit: 'millionTokens' },
-        { name: 'imageOutput', rate: 30, strategy: 'fixed', unit: 'millionTokens' },
-      ],
-    },
-  },
-  {
-    displayName: 'Nano Banana (Preview)',
-    id: 'gemini-2.5-flash-image-preview:image',
-    type: 'image',
-    description:
-      'Nano Banana is Google’s newest, fastest, and most efficient native multimodal model, enabling conversational image generation and editing.',
-    releasedAt: '2025-08-26',
-    parameters: CHAT_MODEL_IMAGE_GENERATION_PARAMS,
     pricing: {
       approximatePricePerImage: 0.039,
       units: [

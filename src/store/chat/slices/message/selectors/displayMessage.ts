@@ -24,9 +24,15 @@ import { messageMapKey } from '../../../utils/messageMapKey';
 
 /**
  * Get the current chat key for accessing messagesMap
+ * For group conversations, uses groupId to generate the correct key
  */
 export const currentDisplayChatKey = (s: ChatStoreState) =>
-  messageMapKey({ agentId: s.activeAgentId, topicId: s.activeTopicId });
+  messageMapKey({
+    agentId: s.activeAgentId,
+    groupId: s.activeGroupId,
+    threadId: s.activeThreadId,
+    topicId: s.activeTopicId,
+  });
 
 /**
  * Get display messages by key
@@ -241,7 +247,7 @@ const findLastBlockId = (block: AssistantContentBlock | undefined): string | und
 
 /**
  * Recursively finds the last message ID in a message tree
- * Priority: children > tools > self
+ * Priority: children > tools > compressedGroup.lastMessageId > self
  */
 const findLastMessageIdRecursive = (node: UIChatMessage | undefined): string | undefined => {
   if (!node) return undefined;
@@ -258,7 +264,12 @@ const findLastMessageIdRecursive = (node: UIChatMessage | undefined): string | u
     return lastTool?.result_msg_id;
   }
 
-  // Priority 3: Return self ID
+  // Priority 3: For compressedGroup, return lastMessageId instead of group ID
+  if (node.role === 'compressedGroup' && 'lastMessageId' in node) {
+    return (node as any).lastMessageId;
+  }
+
+  // Priority 4: Return self ID
   return node.id;
 };
 

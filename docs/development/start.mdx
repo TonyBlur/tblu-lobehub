@@ -1,10 +1,23 @@
+---
+title: Technical Development Getting Started Guide
+description: >-
+  Explore the LobeHub development setup, technology stack, and contribution
+  guidelines.
+tags:
+  - LobeHub
+  - Next.js
+  - Development Guide
+  - Internationalization
+  - Open Source
+---
+
 # Technical Development Getting Started Guide
 
-Welcome to the LobeChat Technical Development Getting Started Guide. LobeChat is an AI conversation application built on the Next.js framework, incorporating a range of technology stacks to achieve diverse functionalities and features. This guide will detail the main technical components of LobeChat and how to configure and use these technologies in your development environment.
+Welcome to the LobeHub Technical Development Getting Started Guide. LobeHub is an AI conversation application built on the Next.js framework, incorporating a range of technology stacks to achieve diverse functionalities and features. This guide will detail the main technical components of LobeHub and how to configure and use these technologies in your development environment.
 
 ## Basic Technology Stack
 
-The core technology stack of LobeChat is as follows:
+The core technology stack of LobeHub is as follows:
 
 - **Framework**: We chose [Next.js](https://nextjs.org/), a powerful React framework that provides key features such as server-side rendering, routing framework, and Router Handler.
 - **Component Library**: We use [Ant Design (antd)](https://ant.design/) as the basic component library, along with [lobe-ui](https://github.com/lobehub/lobe-ui) as our business component library.
@@ -17,22 +30,29 @@ The core technology stack of LobeChat is as follows:
 
 ## Folder Directory Structure
 
-The folder directory structure of LobeChat is as follows:
+The folder directory structure of LobeHub is as follows:
 
 ```bash
 src
-├── app        # Code related to the main logic and state management of the application
-├── components # Reusable UI components
-├── config     # Application configuration files, including client and server environment variables
-├── const      # Used to define constants, such as action types, route names, etc.
-├── features   # Business-related feature modules, such as Agent settings, plugin development pop-ups, etc.
-├── hooks      # Custom utility Hooks reusable across the application
-├── layout     # Application layout components, such as navigation bars, sidebars, etc.
-├── locales    # Language files for internationalization
-├── services   # Encapsulated backend service interfaces, such as HTTP requests
-├── store      # Zustand store for state management
-├── types      # TypeScript type definition files
-└── utils      # General utility functions
+├── app            # Next.js App Router implementation with route groups and API routes
+├── business       # Business logic modules (client and server)
+├── components     # Reusable UI components
+├── config         # Application configuration files, including client and server environment variables
+├── const          # Application constants and enums
+├── envs           # Environment variable definitions and validation (analytics, auth, llm, etc.)
+├── features       # Business-related feature modules, such as Agent settings, plugin development pop-ups, etc.
+├── helpers        # Utility helpers for tool engineering, placeholder parsing, etc.
+├── hooks          # Custom utility Hooks reusable across the application
+├── layout         # Application layout components, such as navigation bars, sidebars, etc.
+├── libs           # Third-party integrations (analytics, OIDC, etc.)
+├── locales        # Language files for internationalization
+├── server         # Server-side modules and services
+├── services       # Encapsulated backend service interfaces, such as HTTP requests
+├── store          # Zustand store for state management
+├── styles         # Global styles and CSS-in-JS configurations
+├── tools          # Built-in tools (artifacts, inspectors, interventions, etc.)
+├── types          # TypeScript type definition files
+└── utils          # General utility functions
 ```
 
 For a detailed introduction to the directory structure, see: [Folder Directory Structure](/docs/development/basic/folder-structure)
@@ -43,16 +63,16 @@ This section outlines setting up the development environment and local developme
 
 We recommend using WebStorm as your integrated development environment (IDE).
 
-1. **Get the code**: Clone the LobeChat code repository locally:
+1. **Get the code**: Clone the LobeHub code repository locally:
 
 ```bash
-git clone https://github.com/lobehub/lobe-chat.git
+git clone https://github.com/lobehub/lobehub.git
 ```
 
 2. **Install dependencies**: Enter the project directory and install the required dependencies:
 
 ```bash
-cd lobe-chat
+cd lobehub
 # If you use Bun
 bun install
 # If you use PNPM
@@ -70,11 +90,11 @@ bun run dev
 > \[!IMPORTANT]\
 > If you encounter the error "Could not find 'stylelint-config-recommended'" when installing dependencies with `npm`, please reinstall the dependencies using `pnpm` or `bun`.
 
-Now, you should be able to see the welcome page of LobeChat in your browser. For a detailed environment setup guide, please refer to [Development Environment Setup Guide](/docs/development/basic/setup-development).
+Now, you should be able to see the welcome page of LobeHub in your browser. For a detailed environment setup guide, please refer to [Development Environment Setup Guide](/docs/development/basic/setup-development).
 
 ## Code Style and Contribution Guide
 
-In the LobeChat project, we place great emphasis on the quality and consistency of the code. For this reason, we have established a series of code style standards and contribution processes to ensure that every developer can smoothly participate in the project. Here are the code style and contribution guidelines you need to follow as a developer.
+In the LobeHub project, we place great emphasis on the quality and consistency of the code. For this reason, we have established a series of code style standards and contribution processes to ensure that every developer can smoothly participate in the project. Here are the code style and contribution guidelines you need to follow as a developer.
 
 - **Code Style**: We use `@lobehub/lint` to unify the code style, including ESLint, Prettier, remarklint, and stylelint configurations. Please adhere to our code standards to maintain code consistency and readability.
 - **Contribution Process**: We use gitmoji and semantic release for code submission and release processes. Please use gitmoji to annotate your commit messages and ensure compliance with the semantic release standards so that our automation systems can correctly handle version control and releases.
@@ -85,7 +105,7 @@ For detailed code style and contribution guidelines, please refer to [Code Style
 
 ## Internationalization Implementation Guide
 
-LobeChat uses `i18next` and `lobe-i18n` to implement multilingual support, ensuring a global user experience.
+LobeHub uses `i18next` and `lobe-i18n` to implement multilingual support, ensuring a global user experience.
 
 Internationalization files are located in `src/locales`, containing the default language (Chinese). We generate other language JSON files automatically through `lobe-i18n`.
 
@@ -95,8 +115,8 @@ For a detailed guide on internationalization implementation, please refer to [In
 
 ## Appendix: Resources and References
 
-To support developers in better understanding and using the technology stack of LobeChat, we provide a comprehensive list of resources and references — [LobeChat Resources and References](/docs/development/basic/resources) - Visit our maintained list of resources, including tutorials, articles, and other useful links.
+To support developers in better understanding and using the technology stack of LobeHub, we provide a comprehensive list of resources and references — [LobeHub Resources and References](/docs/development/basic/resources) - Visit our maintained list of resources, including tutorials, articles, and other useful links.
 
-We encourage developers to utilize these resources to deepen their learning and enhance their skills, join community discussions through [LobeChat GitHub Discussions](https://github.com/lobehub/lobe-chat/discussions) or [Discord](https://discord.com/invite/AYFPHvv2jT), ask questions, or share your experiences.
+We encourage developers to utilize these resources to deepen their learning and enhance their skills, join community discussions through [LobeHub GitHub Discussions](https://github.com/lobehub/lobehub/discussions) or [Discord](https://discord.com/invite/AYFPHvv2jT), ask questions, or share your experiences.
 
 If you have any questions or need further assistance, please do not hesitate to contact us through the above channels.

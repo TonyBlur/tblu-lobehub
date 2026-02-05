@@ -1,5 +1,5 @@
 import { Flexbox, Icon, Tag, Tooltip } from '@lobehub/ui';
-import { createStaticStyles, cx, useThemeMode } from 'antd-style';
+import { createStaticStyles, cx } from 'antd-style';
 import { BoltIcon, RotateCwIcon } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -7,23 +7,14 @@ import { useTranslation } from 'react-i18next';
 import { AsyncTaskStatus, type FileParsingTask } from '@/types/asyncTask';
 
 const styles = createStaticStyles(({ css, cssVar }) => ({
-  errorReasonDark: css`
+  errorReason: css`
     padding: 4px;
     border-radius: 4px;
 
     font-family: monospace;
     font-size: 12px;
 
-    background: color-mix(in srgb, ${cssVar.colorText} 90%, black);
-  `,
-  errorReasonLight: css`
-    padding: 4px;
-    border-radius: 4px;
-
-    font-family: monospace;
-    font-size: 12px;
-
-    background: color-mix(in srgb, ${cssVar.colorText} 90%, white);
+    background: ${cssVar.colorFillTertiary};
   `,
 }));
 
@@ -36,7 +27,6 @@ interface EmbeddingStatusProps extends FileParsingTask {
 const EmbeddingStatus = memo<EmbeddingStatusProps>(
   ({ chunkCount, embeddingStatus, embeddingError, onClick, onErrorClick, className }) => {
     const { t } = useTranslation(['components', 'common']);
-    const { isDarkMode } = useThemeMode();
 
     switch (embeddingStatus) {
       case AsyncTaskStatus.Processing: {
@@ -72,9 +62,7 @@ const EmbeddingStatus = memo<EmbeddingStatusProps>(
               <Flexbox gap={4}>
                 {t('FileParsingStatus.chunks.embeddingStatus.errorResult')}
                 {embeddingError && (
-                  <Flexbox
-                    className={isDarkMode ? styles.errorReasonDark : styles.errorReasonLight}
-                  >
+                  <Flexbox className={styles.errorReason}>
                     [{embeddingError.name}]:{' '}
                     {embeddingError.body && typeof embeddingError.body !== 'string'
                       ? embeddingError.body.detail

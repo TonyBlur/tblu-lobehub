@@ -6,12 +6,14 @@ import { type LobeToolMeta } from '@/types/tool/tool';
 
 import { type ToolStoreState } from '../initialState';
 import { builtinToolSelectors } from '../slices/builtin/selectors';
+import { lobehubSkillStoreSelectors } from '../slices/lobehubSkillStore/selectors';
 import { pluginSelectors } from '../slices/plugin/selectors';
 
 const metaList = (s: ToolStoreState): LobeToolMeta[] => {
   const pluginList = pluginSelectors.installedPluginMetaList(s) as LobeToolMeta[];
+  const lobehubSkillList = lobehubSkillStoreSelectors.metaList(s) as LobeToolMeta[];
 
-  return builtinToolSelectors.metaList(s).concat(pluginList);
+  return builtinToolSelectors.metaList(s).concat(pluginList).concat(lobehubSkillList);
 };
 
 const getMetaById =
@@ -39,7 +41,7 @@ const getManifestById =
       .concat(s.builtinTools.map((b) => b.manifest as LobeChatPluginManifest))
       .find((i) => i.identifier === id);
 
-// 获取插件 manifest 加载状态
+// Get plugin manifest loading status
 const getManifestLoadingStatus = (id: string) => (s: ToolStoreState) => {
   const manifest = getManifestById(id)(s);
 

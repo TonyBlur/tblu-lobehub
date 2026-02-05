@@ -3,21 +3,18 @@ import { DiscordIcon } from '@lobehub/ui/icons';
 import { Command } from 'cmdk';
 import {
   Bot,
-  BrainCircuit,
+  FeatherIcon,
   FilePen,
   Github,
-  Image,
   LibraryBig,
-  MailIcon,
   MessageSquarePlusIcon,
   Monitor,
-  Settings,
-  Shapes,
   Star,
 } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { getNavigableRoutes, getRouteById } from '@/config/routes';
 import { FEEDBACK } from '@/const/url';
 import { useFeedbackModal } from '@/hooks/useFeedbackModal';
 
@@ -88,16 +85,24 @@ const MainMenu = memo(() => {
           {t('cmdk.newLibrary')}
         </CommandItem>
 
-        {menuContext !== 'settings' && (
-          <CommandItem
-            icon={<Settings />}
-            keywords={['settings', 'preferences', 'configuration', 'options']}
-            onSelect={() => handleNavigate('/settings')}
-            value="settings"
-          >
-            {t('cmdk.settings')}
-          </CommandItem>
-        )}
+        {menuContext !== 'settings' &&
+          (() => {
+            const settingsRoute = getRouteById('settings');
+            const SettingsIcon = settingsRoute?.icon;
+            const keywords = settingsRoute?.keywordsKey
+              ? t(settingsRoute.keywordsKey as any).split(' ')
+              : settingsRoute?.keywords;
+            return (
+              <CommandItem
+                icon={SettingsIcon && <SettingsIcon />}
+                keywords={keywords}
+                onSelect={() => handleNavigate(settingsRoute?.path || '/settings')}
+                value="settings"
+              >
+                {t('cmdk.settings')}
+              </CommandItem>
+            );
+          })()}
 
         <CommandItem
           icon={<Monitor />}
@@ -109,61 +114,39 @@ const MainMenu = memo(() => {
       </Command.Group>
 
       <Command.Group heading={t('cmdk.navigate')}>
-        {!pathname?.startsWith('/community') && (
-          <CommandItem
-            icon={<Shapes />}
-            onSelect={() => handleNavigate('/community')}
-            value="community"
-          >
-            {t('cmdk.community')}
-          </CommandItem>
-        )}
-        {!pathname?.startsWith('/image') && (
-          <CommandItem icon={<Image />} onSelect={() => handleNavigate('/image')} value="painting">
-            {t('cmdk.painting')}
-          </CommandItem>
-        )}
-        {!pathname?.startsWith('/knowledge') && (
-          <CommandItem
-            icon={<LibraryBig />}
-            onSelect={() => handleNavigate('/resource')}
-            value="resource"
-          >
-            {t('cmdk.resource')}
-          </CommandItem>
-        )}
-        {!pathname?.startsWith('/page') && (
-          <CommandItem
-            icon={<FilePen />}
-            onSelect={() => handleNavigate('/page')}
-            value="page documents write"
-          >
-            {t('cmdk.pages')}
-          </CommandItem>
-        )}
-        {!pathname?.startsWith('/memory') && (
-          <CommandItem
-            icon={<BrainCircuit />}
-            onSelect={() => handleNavigate('/memory')}
-            value="memory"
-          >
-            {t('cmdk.memory')}
-          </CommandItem>
-        )}
+        {getNavigableRoutes().map((route) => {
+          const RouteIcon = route.icon;
+          const keywords = route.keywordsKey
+            ? t(route.keywordsKey as any).split(' ')
+            : route.keywords;
+          return (
+            !pathname?.startsWith(route.pathPrefix) && (
+              <CommandItem
+                icon={<RouteIcon />}
+                key={route.id}
+                keywords={keywords}
+                onSelect={() => handleNavigate(route.path)}
+                value={route.id}
+              >
+                {t(route.cmdkKey as any)}
+              </CommandItem>
+            )
+          );
+        })}
       </Command.Group>
 
       <Command.Group heading={t('cmdk.about')}>
         <CommandItem
-          icon={<MailIcon />}
-          keywords={['feedback', 'issue', 'bug', 'problem']}
+          icon={<FeatherIcon />}
+          keywords={t('cmdk.keywords.contactUs').split(' ')}
           onSelect={openFeedbackModal}
           value="contact-via-email"
         >
-          {t('cmdk.contactViaEmail')}
+          {t('cmdk.contactUs')}
         </CommandItem>
         <CommandItem
           icon={<Github />}
-          keywords={['issue', 'bug', 'problem', 'feedback']}
+          keywords={t('cmdk.keywords.submitIssue').split(' ')}
           onSelect={() => handleExternalLink(FEEDBACK)}
           value="submit-issue"
         >
@@ -171,7 +154,7 @@ const MainMenu = memo(() => {
         </CommandItem>
         <CommandItem
           icon={<Star />}
-          keywords={['github', 'star', 'favorite', 'like']}
+          keywords={t('cmdk.keywords.starGitHub').split(' ')}
           onSelect={() => handleExternalLink(SOCIAL_URL.github)}
           value="star-github"
         >
@@ -179,7 +162,7 @@ const MainMenu = memo(() => {
         </CommandItem>
         <CommandItem
           icon={<DiscordIcon />}
-          keywords={['discord', 'help', 'support', 'customer service']}
+          keywords={t('cmdk.keywords.discord').split(' ')}
           onSelect={() => handleExternalLink(SOCIAL_URL.discord)}
           value="discord"
         >

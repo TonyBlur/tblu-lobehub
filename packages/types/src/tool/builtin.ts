@@ -434,20 +434,66 @@ export interface TriggerExecuteTaskParams extends GroupOrchestrationBaseParams {
    */
   agentId: string;
   /**
+   * The instruction/task description for the agent
+   */
+  instruction: string;
+  /**
+   * Whether to run on the desktop client (for local file/shell access).
+   * MUST be true when task requires local-system tools. Default is false (server execution).
+   */
+  runInClient?: boolean;
+  /**
    * If true, the orchestration will end after the task completes,
    * without calling the supervisor again.
    */
   skipCallSupervisor?: boolean;
-  /**
-   * The task description for the agent
-   */
-  task: string;
   /**
    * Optional timeout in milliseconds
    */
   timeout?: number;
   /**
    * The tool message ID that triggered the task
+   */
+  toolMessageId: string;
+}
+
+/**
+ * Task item for triggerExecuteTasks callback
+ */
+export interface TriggerExecuteTaskItem {
+  /**
+   * The agent ID to execute this task
+   */
+  agentId: string;
+  /**
+   * Detailed instruction for the agent to execute
+   */
+  instruction: string;
+  /**
+   * Optional timeout in milliseconds for this specific task
+   */
+  timeout?: number;
+  /**
+   * Brief title describing what this task does (shown in UI)
+   */
+  title: string;
+}
+
+/**
+ * Params for triggerExecuteTasks callback (multiple tasks)
+ */
+export interface TriggerExecuteTasksParams extends GroupOrchestrationBaseParams {
+  /**
+   * If true, the orchestration will end after all tasks complete,
+   * without calling the supervisor again.
+   */
+  skipCallSupervisor?: boolean;
+  /**
+   * Array of tasks to execute, each assigned to a specific agent
+   */
+  tasks: TriggerExecuteTaskItem[];
+  /**
+   * The tool message ID that triggered the tasks
    */
   toolMessageId: string;
 }
@@ -471,6 +517,11 @@ export interface GroupOrchestrationCallbacks {
    * Trigger async task execution for an agent
    */
   triggerExecuteTask: (params: TriggerExecuteTaskParams) => Promise<void>;
+
+  /**
+   * Trigger async execution of multiple tasks in parallel
+   */
+  triggerExecuteTasks: (params: TriggerExecuteTasksParams) => Promise<void>;
 
   /**
    * Trigger speak to a specific agent

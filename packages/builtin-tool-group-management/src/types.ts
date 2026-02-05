@@ -2,20 +2,11 @@
 
 /**
  * API names for Group Management tool
+ *
+ * Note: Member management APIs (searchAgent, inviteAgent, createAgent, removeAgent)
+ * are handled by group-agent-builder tool. This tool focuses on orchestration.
  */
 export const GroupManagementApiName = {
-  // ==================== Member Management ====================
-  /** Search for agents that can be invited to the group */
-  searchAgent: 'searchAgent',
-  /** Invite an agent to join the group */
-  inviteAgent: 'inviteAgent',
-  /** Create a new agent and add it to the group */
-  createAgent: 'createAgent',
-  /** Remove an agent from the group */
-  removeAgent: 'removeAgent',
-  /** Get detailed information about an agent */
-  getAgentInfo: 'getAgentInfo',
-
   // ==================== Communication Coordination ====================
   /** Let a specific agent speak (synchronous, immediate response) */
   speak: 'speak',
@@ -26,7 +17,9 @@ export const GroupManagementApiName = {
 
   // ==================== Task Execution ====================
   /** Let an agent execute a task asynchronously */
-  executeTask: 'executeTask',
+  executeAgentTask: 'executeAgentTask',
+  /** Let multiple agents execute different tasks in parallel */
+  executeAgentTasks: 'executeAgentTasks',
   /** Interrupt a running agent task */
   interrupt: 'interrupt',
 
@@ -43,33 +36,6 @@ export const GroupManagementApiName = {
 
 export type GroupManagementApiNameType =
   (typeof GroupManagementApiName)[keyof typeof GroupManagementApiName];
-
-// ==================== Member Management Params ====================
-
-export interface SearchAgentParams {
-  limit?: number;
-  query?: string;
-  source?: 'user' | 'community';
-}
-
-export interface InviteAgentParams {
-  agentId: string;
-}
-
-export interface CreateAgentParams {
-  avatar?: string;
-  description?: string;
-  systemRole: string;
-  title: string;
-}
-
-export interface RemoveAgentParams {
-  agentId: string;
-}
-
-export interface GetAgentInfoParams {
-  agentId: string;
-}
 
 // ==================== Communication Params ====================
 
@@ -106,14 +72,43 @@ export interface DelegateParams {
 
 export interface ExecuteTaskParams {
   agentId: string;
+  /** Clear instruction describing the task to perform */
+  instruction: string;
+  /**
+   * Whether to run on the desktop client (for local file/shell access).
+   * MUST be true when task requires local-system tools. Default is false (server execution).
+   */
+  runInClient?: boolean;
   /**
    * If true, the orchestration will end after the task completes,
    * without calling the supervisor again.
    * Use this when the task is the final action needed.
    */
   skipCallSupervisor?: boolean;
-  task: string;
   timeout?: number;
+  /** Brief title describing what this task does (shown in UI) */
+  title: string;
+}
+
+export interface TaskItem {
+  /** The ID of the agent to execute this task */
+  agentId: string;
+  /** Detailed instruction for the agent to execute */
+  instruction: string;
+  /** Optional timeout in milliseconds for this specific task */
+  timeout?: number;
+  /** Brief title describing what this task does (shown in UI) */
+  title: string;
+}
+
+export interface ExecuteTasksParams {
+  /**
+   * If true, the orchestration will end after all tasks complete,
+   * without calling the supervisor again.
+   */
+  skipCallSupervisor?: boolean;
+  /** Array of tasks to execute, each assigned to a specific agent */
+  tasks: TaskItem[];
 }
 
 export interface InterruptParams {
@@ -155,14 +150,6 @@ export interface VoteParams {
 }
 
 // ==================== Result Types ====================
-
-export interface AgentSearchResult {
-  avatar?: string;
-  description?: string;
-  id: string;
-  source: 'user' | 'community';
-  title: string;
-}
 
 export interface VoteResult {
   agentId: string;

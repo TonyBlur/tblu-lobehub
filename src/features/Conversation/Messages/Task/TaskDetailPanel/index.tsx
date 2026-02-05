@@ -1,6 +1,5 @@
 'use client';
 
-import { Block, Text } from '@lobehub/ui';
 import { memo } from 'react';
 
 import { type TaskDetail } from '@/types/index';
@@ -17,25 +16,10 @@ interface TaskDetailPanelProps {
   taskDetail?: TaskDetail;
 }
 
-const TaskDetailPanel = memo<TaskDetailPanelProps>(
-  ({ taskDetail, instruction, content, messageId }) => {
-    return (
-      <>
-        {/* Instruction Header */}
-        {instruction && (
-          <Block padding={12}>
-            <Text fontSize={13} type={'secondary'}>
-              {instruction}
-            </Text>
-          </Block>
-        )}
-
-        {/* Status Content */}
-        <StatusContent content={content} messageId={messageId} taskDetail={taskDetail} />
-      </>
-    );
-  },
-);
+const TaskDetailPanel = memo<TaskDetailPanelProps>(({ taskDetail, content, messageId }) => {
+  // Default: server-side task execution
+  return <StatusContent content={content} messageId={messageId} taskDetail={taskDetail} />;
+});
 
 TaskDetailPanel.displayName = 'TaskDetailPanel';
 

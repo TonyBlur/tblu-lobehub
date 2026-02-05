@@ -12,8 +12,10 @@ import { verifyPassword as defaultVerifyPassword } from 'better-auth/crypto';
 import { type BetterAuthOptions, betterAuth } from 'better-auth/minimal';
 import { admin, emailOTP, genericOAuth, magicLink } from 'better-auth/plugins';
 import { type BetterAuthPlugin } from 'better-auth/types';
+import { ProxyAgent, setGlobalDispatcher } from 'undici';
 
 import { businessEmailValidator } from '@/business/server/better-auth';
+import { appEnv } from '@/envs/app';
 import { authEnv } from '@/envs/auth';
 import {
   getMagicLinkEmailTemplate,
@@ -21,24 +23,41 @@ import {
   getVerificationEmailTemplate,
   getVerificationOTPEmailTemplate,
 } from '@/libs/better-auth/email-templates';
+import { emailWhitelist } from '@/libs/better-auth/plugins/email-whitelist';
 import { initBetterAuthSSOProviders } from '@/libs/better-auth/sso';
 import { createSecondaryStorage, getTrustedOrigins } from '@/libs/better-auth/utils/config';
 import { parseSSOProviders } from '@/libs/better-auth/utils/server';
 import { EmailService } from '@/server/services/email';
 import { UserService } from '@/server/services/user';
 
+// Configure HTTP proxy for OAuth provider requests in development (e.g., Google token exchange)
+// Node.js native fetch doesn't respect system proxy settings
+// Ref: https://github.com/better-auth/better-auth/issues/7396
+if (process.env.NODE_ENV === 'development') {
+  const proxyUrl =
+    process.env.HTTPS_PROXY ||
+    process.env.https_proxy ||
+    process.env.HTTP_PROXY ||
+    process.env.http_proxy;
+
+  if (proxyUrl) {
+    const proxyAgent = new ProxyAgent(proxyUrl);
+    setGlobalDispatcher(proxyAgent);
+  }
+}
+
 // Email verification link expiration time (in seconds)
 // Default is 1 hour (3600 seconds) as per Better Auth documentation
 const VERIFICATION_LINK_EXPIRES_IN = 3600;
 
 /**
- * Safely extract hostname from AUTH_URL for passkey rpID.
- * Returns undefined if AUTH_URL is not set (e.g., in e2e tests).
+ * Safely extract hostname from APP_URL for passkey rpID.
+ * Returns undefined if APP_URL is not set (e.g., in e2e tests).
  */
 const getPasskeyRpID = (): string | undefined => {
-  if (!authEnv.NEXT_PUBLIC_AUTH_URL) return undefined;
+  if (!appEnv.APP_URL) return undefined;
   try {
-    return new URL(authEnv.NEXT_PUBLIC_AUTH_URL).hostname;
+    return new URL(appEnv.APP_URL).hostname;
   } catch {
     return undefined;
   }
@@ -46,28 +65,26 @@ const getPasskeyRpID = (): string | undefined => {
 
 /**
  * Get passkey origins array.
- * Returns undefined if AUTH_URL is not set (e.g., in e2e tests).
+ * Returns undefined if APP_URL is not set (e.g., in e2e tests).
  */
 const getPasskeyOrigins = (): string[] | undefined => {
-  if (!authEnv.NEXT_PUBLIC_AUTH_URL) return undefined;
-  return [
-    // Web origin
-    authEnv.NEXT_PUBLIC_AUTH_URL,
-  ];
+  if (!appEnv.APP_URL) return undefined;
+  try {
+    return [new URL(appEnv.APP_URL).origin];
+  } catch {
+    return undefined;
+  }
 };
 const MAGIC_LINK_EXPIRES_IN = 900;
 // OTP expiration time (in seconds) - 5 minutes for mobile OTP verification
 const OTP_EXPIRES_IN = 300;
-const enableMagicLink = authEnv.NEXT_PUBLIC_ENABLE_MAGIC_LINK;
+const enableMagicLink = authEnv.AUTH_ENABLE_MAGIC_LINK;
 const enabledSSOProviders = parseSSOProviders(authEnv.AUTH_SSO_PROVIDERS);
 
 const { socialProviders, genericOAuthProviders } = initBetterAuthSSOProviders();
 
 async function customEmailValidator(email: string): Promise<boolean> {
-  if (ENABLE_BUSINESS_FEATURES && !(await businessEmailValidator(email))) {
-    return false;
-  }
-  return validateEmail(email);
+  return ENABLE_BUSINESS_FEATURES ? businessEmailValidator(email) : validateEmail(email);
 }
 
 interface CustomBetterAuthOptions {
@@ -84,17 +101,17 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
       },
     },
 
-    // Use renamed env vars (fallback to next-auth vars is handled in src/envs/auth.ts)
-    baseURL: authEnv.NEXT_PUBLIC_AUTH_URL,
+    baseURL: appEnv.APP_URL,
     secret: authEnv.AUTH_SECRET,
     trustedOrigins: getTrustedOrigins(enabledSSOProviders),
 
     emailAndPassword: {
       autoSignIn: true,
-      enabled: true,
+      disableSignUp: authEnv.AUTH_DISABLE_EMAIL_PASSWORD,
+      enabled: !authEnv.AUTH_DISABLE_EMAIL_PASSWORD,
       maxPasswordLength: 64,
       minPasswordLength: 8,
-      requireEmailVerification: authEnv.NEXT_PUBLIC_AUTH_EMAIL_VERIFICATION,
+      requireEmailVerification: authEnv.AUTH_EMAIL_VERIFICATION,
 
       // Compatible with bcrypt password hashes migrated from Clerk; after login, you can re-hash in the backend using BetterAuth's default scrypt.
       password: {
@@ -125,7 +142,13 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
     emailVerification: {
       autoSignInAfterVerification: true,
       expiresIn: VERIFICATION_LINK_EXPIRES_IN,
-      sendVerificationEmail: async ({ user, url }) => {
+      sendVerificationEmail: async ({ user, url }, request) => {
+        // Skip sending verification link email for mobile clients (Expo/React Native)
+        // Mobile clients use OTP verification instead, triggered manually via emailOTP plugin
+        if (request?.headers?.get?.('x-client-type') === 'mobile') {
+          return;
+        }
+
         const template = getVerificationEmailTemplate({
           expiresInSeconds: VERIFICATION_LINK_EXPIRES_IN,
           url,
@@ -218,6 +241,7 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
     },
     plugins: [
       ...customOptions.plugins,
+      emailWhitelist(),
       expo(),
       emailHarmony({ allowNormalizedSignin: false, validator: customEmailValidator }),
       admin(),

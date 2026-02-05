@@ -89,16 +89,7 @@ const InputEditor = memo<{ defaultRows?: number }>(({ defaultRows = 2 }) => {
       !enableRichRender
         ? {
             enablePasteMarkdown: false,
-            markdownOption: {
-              bold: false,
-              code: false,
-              header: false,
-              italic: false,
-              quote: false,
-              strikethrough: false,
-              underline: false,
-              underlineStrikethrough: false,
-            },
+            markdownOption: false,
           }
         : {
             plugins: [
@@ -129,6 +120,7 @@ const InputEditor = memo<{ defaultRows?: number }>(({ defaultRows = 2 }) => {
       className={className}
       content={''}
       editor={editor}
+      pasteAsPlainText
       {...richRenderProps}
       mentionOption={
         enableMention
@@ -173,12 +165,10 @@ const InputEditor = memo<{ defaultRows?: number }>(({ defaultRows = 2 }) => {
           e.preventDefault();
           const { electronSystemService } = await import('@/services/electron/system');
 
-          const selectionValue = editor.getSelectionDocument('markdown') as unknown as string;
-          const hasSelection = !!selectionValue;
+          const selectionText = editor.getSelectionDocument('markdown') as unknown as string;
 
           await electronSystemService.showContextMenu('editor', {
-            hasSelection,
-            value: selectionValue,
+            selectionText: selectionText || undefined,
           });
         }
       }}

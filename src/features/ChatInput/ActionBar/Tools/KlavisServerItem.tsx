@@ -1,5 +1,5 @@
-import { Flexbox, Icon , Checkbox } from '@lobehub/ui';
-import { Loader2, SquareArrowOutUpRight, Unplug } from 'lucide-react';
+import { Checkbox, Flexbox, Icon } from '@lobehub/ui';
+import { Loader2, SquareArrowOutUpRight } from 'lucide-react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -16,6 +16,11 @@ const POLL_TIMEOUT_MS = 15_000; // 15 秒超时
 
 interface KlavisServerItemProps {
   /**
+   * Optional agent ID to use instead of currentAgentConfig
+   * Used in group profile to specify which member's plugins to toggle
+   */
+  agentId?: string;
+  /**
    * Identifier used for storage (e.g., 'google-calendar')
    */
   identifier: string;
@@ -28,7 +33,7 @@ interface KlavisServerItemProps {
 }
 
 const KlavisServerItem = memo<KlavisServerItemProps>(
-  ({ identifier, label, server, serverName }) => {
+  ({ identifier, label, server, serverName, agentId }) => {
     const { t } = useTranslation('setting');
     const [isConnecting, setIsConnecting] = useState(false);
     const [isToggling, setIsToggling] = useState(false);
@@ -42,7 +47,10 @@ const KlavisServerItem = memo<KlavisServerItemProps>(
     const userId = useUserStore(userProfileSelectors.userId);
     const createKlavisServer = useToolStore((s) => s.createKlavisServer);
     const refreshKlavisServerTools = useToolStore((s) => s.refreshKlavisServerTools);
-    const removeKlavisServer = useToolStore((s) => s.removeKlavisServer);
+
+    // Get effective agent ID (agentId prop or current active agent)
+    const activeAgentId = useAgentStore((s) => s.activeAgentId);
+    const effectiveAgentId = agentId || activeAgentId || '';
 
     // 清理所有定时器
     const cleanup = useCallback(() => {
@@ -89,7 +97,7 @@ const KlavisServerItem = memo<KlavisServerItemProps>(
           try {
             await refreshKlavisServerTools(serverName);
           } catch (error) {
-            console.error('[Klavis] Failed to check auth status:', error);
+            console.debug('[Klavis] Polling check (expected during auth):', error);
           }
         }, POLL_INTERVAL_MS);
 
@@ -122,8 +130,8 @@ const KlavisServerItem = memo<KlavisServerItemProps>(
               }
               oauthWindowRef.current = null;
 
-              // 窗口关闭后立即检查一次认证状态
-              refreshKlavisServerTools(serverName);
+              // 窗口关闭后开始轮询检查认证状态
+              startFallbackPolling(serverName);
             }
           } catch {
             // COOP 阻止了访问，降级到轮询方案
@@ -163,10 +171,24 @@ const KlavisServerItem = memo<KlavisServerItemProps>(
 
     // Get plugin ID for this server (使用 identifier 作为 pluginId)
     const pluginId = server ? server.identifier : '';
-    const [checked, togglePlugin] = useAgentStore((s) => [
-      agentSelectors.currentAgentPlugins(s).includes(pluginId),
-      s.togglePlugin,
-    ]);
+    const plugins =
+      useAgentStore(agentSelectors.getAgentConfigById(effectiveAgentId))?.plugins || [];
+    const checked = plugins.includes(pluginId);
+    const updateAgentConfigById = useAgentStore((s) => s.updateAgentConfigById);
+
+    // Toggle plugin for the effective agent
+    const togglePlugin = useCallback(
+      async (pluginIdToToggle: string) => {
+        if (!effectiveAgentId) return;
+        const currentPlugins = plugins;
+        const hasPlugin = currentPlugins.includes(pluginIdToToggle);
+        const newPlugins = hasPlugin
+          ? currentPlugins.filter((id) => id !== pluginIdToToggle)
+          : [...currentPlugins, pluginIdToToggle];
+        await updateAgentConfigById(effectiveAgentId, { plugins: newPlugins });
+      },
+      [effectiveAgentId, plugins, updateAgentConfigById],
+    );
 
     const handleConnect = async () => {
       if (!userId) {
@@ -212,18 +234,6 @@ const KlavisServerItem = memo<KlavisServerItemProps>(
       setIsToggling(false);
     };
 
-    const handleDisconnect = async () => {
-      if (!server) return;
-      setIsToggling(true);
-      // 如果当前已启用，先禁用
-      if (checked) {
-        await togglePlugin(pluginId);
-      }
-      // 删除服务器（使用 identifier）
-      await removeKlavisServer(server.identifier);
-      setIsToggling(false);
-    };
-
     // 渲染右侧控件
     const renderRightControl = () => {
       // 正在连接中
@@ -262,24 +272,13 @@ const KlavisServerItem = memo<KlavisServerItemProps>(
             return <Icon icon={Loader2} spin />;
           }
           return (
-            <Flexbox align="center" gap={8} horizontal>
-              <Icon
-                icon={Unplug}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDisconnect();
-                }}
-                size="small"
-                style={{ cursor: 'pointer', opacity: 0.5 }}
-              />
-              <Checkbox
-                checked={checked}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleToggle();
-                }}
-              />
-            </Flexbox>
+            <Checkbox
+              checked={checked}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleToggle();
+              }}
+            />
           );
         }
         case KlavisServerStatus.PENDING_AUTH: {
@@ -336,7 +335,6 @@ const KlavisServerItem = memo<KlavisServerItemProps>(
             handleToggle();
           }
         }}
-        style={{ paddingLeft: 8 }}
       >
         <Flexbox align={'center'} gap={8} horizontal>
           {label}

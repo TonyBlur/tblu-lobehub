@@ -47,11 +47,11 @@ const Search = memo(() => {
         minWidth: 320,
         placement: 'topLeft',
         styles: {
-          container: {
+          content: {
             padding: 4,
           },
         },
-        trigger: isMobile ? ['click'] : ['hover'],
+        trigger: isMobile ? 'click' : 'hover',
       }}
       showTooltip={false}
       title={t('search.title')}

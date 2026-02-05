@@ -1,27 +1,25 @@
 'use client';
 
-import { useDroppable } from '@dnd-kit/core';
-import { Center, type DropdownItem, DropdownMenu, Flexbox, Skeleton, Text } from '@lobehub/ui';
+import {
+  ActionIcon,
+  Block,
+  Center,
+  type DropdownItem,
+  DropdownMenu,
+  Skeleton,
+  Text,
+} from '@lobehub/ui';
 import { createStaticStyles, cx } from 'antd-style';
-import { ChevronsUpDown } from 'lucide-react';
-import { memo, useCallback, useMemo } from 'react';
+import { ChevronsUpDownIcon } from 'lucide-react';
+import { type DragEvent, memo, useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { useDragActive } from '@/app/[variants]/(main)/resource/features/DndContextWrapper';
 import { useResourceManagerStore } from '@/app/[variants]/(main)/resource/features/store';
 import RepoIcon from '@/components/LibIcon';
-import { knowledgeBaseSelectors, useKnowledgeBaseStore } from '@/store/knowledgeBase';
+import { knowledgeBaseSelectors, useKnowledgeBaseStore } from '@/store/library';
 
 const styles = createStaticStyles(({ css, cssVar }) => ({
-  clickableHeader: css`
-    cursor: pointer;
-    border-radius: ${cssVar.borderRadius}px;
-    transition: all 0.2s;
-
-    &:hover {
-      background-color: ${cssVar.colorFillTertiary};
-    }
-  `,
   dropZoneActive: css`
     color: ${cssVar.colorBgElevated} !important;
     background-color: ${cssVar.colorText} !important;
@@ -30,41 +28,23 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
       color: ${cssVar.colorBgElevated} !important;
     }
   `,
-  icon: css`
-    color: ${cssVar.colorTextSecondary};
-    transition: all 0.2s;
-
-    &:hover {
-      color: ${cssVar.colorText};
-    }
-  `,
   menuIcon: css`
     color: ${cssVar.colorTextTertiary};
   `,
 }));
 
+/**
+ * Quickly switch between libraries
+ */
 const Head = memo<{ id: string }>(({ id }) => {
   const navigate = useNavigate();
   const name = useKnowledgeBaseStore(knowledgeBaseSelectors.getKnowledgeBaseNameById(id));
-  const setMode = useResourceManagerStore((s) => s.setMode);
+  const [setMode, setLibraryId] = useResourceManagerStore((s) => [s.setMode, s.setLibraryId]);
   const isDragActive = useDragActive();
+  const [isDropZoneActive, setIsDropZoneActive] = useState(false);
 
   const useFetchKnowledgeBaseList = useKnowledgeBaseStore((s) => s.useFetchKnowledgeBaseList);
   const { data: libraries } = useFetchKnowledgeBaseList();
-
-  // Special droppable ID for root folder - matches the pattern expected by DndContextWrapper
-  const ROOT_DROP_ID = `__root__:${id}`;
-
-  const { setNodeRef, isOver } = useDroppable({
-    data: {
-      fileType: 'custom/folder',
-      isFolder: true,
-      name: 'Root',
-      targetId: null,
-    },
-    disabled: !isDragActive,
-    id: ROOT_DROP_ID,
-  });
 
   const handleClick = useCallback(() => {
     navigate(`/resource/library/${id}`);
@@ -73,11 +53,34 @@ const Head = memo<{ id: string }>(({ id }) => {
 
   const handleLibrarySwitch = useCallback(
     (libraryId: string) => {
-      navigate(`/resource/library/${libraryId}`);
+      setLibraryId(libraryId);
       setMode('explorer');
+      // 使用 setTimeout 确保在下一个事件循环中执行 navigate
+      setTimeout(() => {
+        navigate(`/resource/library/${libraryId}`);
+      }, 0);
     },
-    [navigate, setMode],
+    [navigate, setLibraryId, setMode],
   );
+
+  // Native HTML5 drag-and-drop handlers for root directory drop
+  const handleDragOver = useCallback(
+    (e: DragEvent<HTMLDivElement>) => {
+      if (!isDragActive) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDropZoneActive(true);
+    },
+    [isDragActive],
+  );
+
+  const handleDragLeave = useCallback(() => {
+    setIsDropZoneActive(false);
+  }, []);
+
+  const handleDrop = useCallback(() => {
+    setIsDropZoneActive(false);
+  }, []);
 
   const menuItems = useMemo<DropdownItem[]>(() => {
     if (!libraries) return [];
@@ -96,38 +99,51 @@ const Head = memo<{ id: string }>(({ id }) => {
   }, [libraries, handleLibrarySwitch, id, styles.menuIcon]);
 
   return (
-    <Flexbox
+    <Block
       align={'center'}
-      className={cx(styles.clickableHeader, isOver && styles.dropZoneActive)}
+      className={cx(isDropZoneActive && styles.dropZoneActive)}
+      clickable
+      data-drop-target-id="root"
+      data-is-folder="true"
+      data-root-drop="true"
       gap={8}
       horizontal
-      paddingBlock={6}
-      paddingInline={'12px 14px'}
-      ref={setNodeRef}
+      onClick={handleClick}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+      padding={2}
+      style={{ minWidth: 32, overflow: 'hidden' }}
+      variant={'borderless'}
     >
-      <Center style={{ minWidth: 24 }} width={24}>
-        <RepoIcon />
+      <Center style={{ minWidth: 32 }} width={32}>
+        <RepoIcon size={18} />
       </Center>
       {!name ? (
         <Skeleton active paragraph={false} title={{ style: { marginBottom: 0 }, width: 80 }} />
       ) : (
-        <Flexbox align={'center'} flex={1} gap={4} horizontal onClick={handleClick}>
-          <Text ellipsis strong style={{ flex: 1, fontSize: 16 }}>
-            {name}
-          </Text>
-        </Flexbox>
-      )}
-      {name && (
         <DropdownMenu items={menuItems} placement="bottomRight">
-          <ChevronsUpDown
-            className={styles.icon}
+          <Center
+            gap={4}
+            horizontal
             onClick={(e) => e.stopPropagation()}
-            size={16}
-            style={{ cursor: 'pointer', flex: 'none' }}
-          />
+            style={{ cursor: 'pointer', flex: 1, overflow: 'hidden' }}
+          >
+            <Text ellipsis style={{ flex: 1 }} weight={500}>
+              {name}
+            </Text>
+            <ActionIcon
+              icon={ChevronsUpDownIcon}
+              size={{
+                blockSize: 28,
+                size: 16,
+              }}
+              style={{ width: 24 }}
+            />
+          </Center>
         </DropdownMenu>
       )}
-    </Flexbox>
+    </Block>
   );
 });
 

@@ -31,7 +31,7 @@ import { default as infiniai } from './infiniai';
 import { default as internlm } from './internlm';
 import { default as jina } from './jina';
 import { default as lmstudio } from './lmstudio';
-import { default as lobehub } from './lobehub';
+import { default as lobehub } from './lobehub/index';
 import { default as minimax } from './minimax';
 import { default as mistral } from './mistral';
 import { default as modelscope } from './modelscope';
@@ -66,6 +66,7 @@ import { default as vllm } from './vllm';
 import { default as volcengine } from './volcengine';
 import { default as wenxin } from './wenxin';
 import { default as xai } from './xai';
+import { default as xiaomimimo } from './xiaomimimo';
 import { default as xinference } from './xinference';
 import { default as zenmux } from './zenmux';
 import { default as zeroone } from './zeroone';
@@ -156,6 +157,7 @@ export const LOBE_DEFAULT_MODEL_LIST = buildDefaultModelList({
   volcengine,
   wenxin,
   xai,
+  xiaomimimo,
   xinference,
   zenmux,
   zeroone,
@@ -192,7 +194,7 @@ export { default as infiniai } from './infiniai';
 export { default as internlm } from './internlm';
 export { default as jina } from './jina';
 export { default as lmstudio } from './lmstudio';
-export { default as lobehub } from './lobehub';
+export { default as lobehub } from './lobehub/index';
 export { default as minimax } from './minimax';
 export { default as mistral } from './mistral';
 export { default as modelscope } from './modelscope';
@@ -227,6 +229,7 @@ export { default as vllm } from './vllm';
 export { default as volcengine } from './volcengine';
 export { default as wenxin } from './wenxin';
 export { default as xai } from './xai';
+export { default as xiaomimimo } from './xiaomimimo';
 export { default as xinference } from './xinference';
 export { default as zenmux } from './zenmux';
 export { default as zeroone } from './zeroone';

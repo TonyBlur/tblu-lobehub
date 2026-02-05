@@ -1,6 +1,6 @@
 /* eslint-disable no-undef */
 import { Center, Flexbox, Icon } from '@lobehub/ui';
-import { createStaticStyles, cssVar } from 'antd-style';
+import { createStaticStyles } from 'antd-style';
 import { FileImage, FileText, FileUpIcon } from 'lucide-react';
 import { memo } from 'react';
 import { createPortal } from 'react-dom';
@@ -11,7 +11,7 @@ import { getContainer, useDragUpload } from './useDragUpload';
 const BLOCK_SIZE = 64;
 const ICON_SIZE = { size: 36, strokeWidth: 1.5 };
 
-const styles = createStaticStyles(({ css }) => {
+const styles = createStaticStyles(({ css, cssVar }) => {
   return {
     container: css`
       width: 320px;
@@ -40,6 +40,18 @@ const styles = createStaticStyles(({ css }) => {
     `,
     iconGroup: css`
       margin-block-start: -44px;
+    `,
+    iconLeft: css`
+      transform: rotateZ(-20deg) translateX(10px);
+      border-radius: ${cssVar.borderRadiusLG};
+      color: color-mix(in srgb, ${cssVar.geekblue} 95%, black);
+      background: color-mix(in srgb, ${cssVar.geekblue} 68%, white);
+    `,
+    iconRight: css`
+      transform: rotateZ(20deg) translateX(-10px);
+      border-radius: ${cssVar.borderRadiusLG};
+      color: color-mix(in srgb, ${cssVar.geekblue} 95%, black);
+      background: color-mix(in srgb, ${cssVar.geekblue} 68%, white);
     `,
     title: css`
       font-size: 20px;
@@ -71,22 +83,14 @@ const DragUpload = memo<DragUploadProps>(({ enabledFiles = true, onUploadFiles }
 
   const isDragging = useDragUpload(onUploadFiles);
 
-  if (!isDragging) return;
+  if (isDragging) return;
 
   return createPortal(
     <Center className={styles.wrapper}>
       <div className={styles.container}>
         <Center className={styles.content} gap={12}>
           <Flexbox className={styles.iconGroup} horizontal>
-            <Center
-              className={styles.icon}
-              height={BLOCK_SIZE * 1.25}
-              style={{
-                background: `color-mix(in srgb, ${cssVar.geekblue} 68%, white)`,
-                transform: 'rotateZ(-20deg) translateX(10px)',
-              }}
-              width={BLOCK_SIZE}
-            >
+            <Center className={styles.iconLeft} height={BLOCK_SIZE * 1.25} width={BLOCK_SIZE}>
               <Icon icon={FileImage} size={ICON_SIZE} />
             </Center>
             <Center
@@ -100,15 +104,7 @@ const DragUpload = memo<DragUploadProps>(({ enabledFiles = true, onUploadFiles }
             >
               <Icon icon={FileUpIcon} size={ICON_SIZE} />
             </Center>
-            <Center
-              className={styles.icon}
-              height={BLOCK_SIZE * 1.25}
-              style={{
-                background: `color-mix(in srgb, ${cssVar.geekblue} 68%, white)`,
-                transform: 'rotateZ(20deg) translateX(-10px)',
-              }}
-              width={BLOCK_SIZE}
-            >
+            <Center className={styles.iconRight} height={BLOCK_SIZE * 1.25} width={BLOCK_SIZE}>
               <Icon icon={FileText} size={ICON_SIZE} />
             </Center>
           </Flexbox>
