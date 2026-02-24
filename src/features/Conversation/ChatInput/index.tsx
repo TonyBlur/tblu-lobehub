@@ -71,7 +71,7 @@ export interface ChatInputProps {
    */
   sendMenu?: MenuProps;
   /**
-   * 与 ChatList 共同挨在一起的时候，将一点间距去掉
+   * Remove a small margin when placed adjacent to the ChatList
    */
   skipScrollMarginWithList?: boolean;
 }
