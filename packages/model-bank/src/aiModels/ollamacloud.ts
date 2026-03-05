@@ -1,6 +1,30 @@
-import  { type AIChatModelCard } from '../types/aiModel';
+import { type AIChatModelCard } from '../types/aiModel';
 
 const ollamaCloudModels: AIChatModelCard[] = [
+  {
+    abilities: {
+      functionCall: true,
+      reasoning: true,
+      vision: true,
+    },
+    contextWindowTokens: 262_144,
+    description:
+      'Qwen3.5 is a unified vision–language foundation model with a hybrid architecture (Mixture-of-Experts + linear attention), offering strong multimodal reasoning, coding, and long-context capabilities with a 256K context window.',
+    displayName: 'Qwen3.5 397B A17B',
+    id: 'qwen3.5:397b',
+    type: 'chat',
+  },
+  {
+    abilities: {
+      functionCall: true,
+    },
+    contextWindowTokens: 262_144,
+    description:
+      "Qwen3-Coder-Next is a coding-focused language model from Alibaba's Qwen team, optimized for agentic coding workflows and local development. Built on top of Qwen3-Next-80B-A3B-Base with hybrid attention and MoE architecture, trained on large-scale executable tasks with environment interaction and reinforcement learning.",
+    displayName: 'Qwen3 Coder Next',
+    id: 'qwen3-coder-next',
+    type: 'chat',
+  },
   {
     abilities: {
       functionCall: true,
@@ -12,6 +36,19 @@ const ollamaCloudModels: AIChatModelCard[] = [
     displayName: 'MiniMax M2.5',
     enabled: true,
     id: 'minimax-m2.5',
+    type: 'chat',
+  },
+  {
+    abilities: {
+      functionCall: true,
+      reasoning: true,
+    },
+    contextWindowTokens: 262_144,
+    description:
+      'K2 long thinking model supports 256k contexts, supports multi-step tool calling and thinking, and is good at solving more complex problems.',
+    displayName: 'Kimi K2 Thinking',
+    enabled: true,
+    id: 'kimi-k2-thinking',
     type: 'chat',
   },
   {

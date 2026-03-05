@@ -4,22 +4,18 @@ import { type StateCreator } from 'zustand/vanilla';
 
 import { createDevtools } from '../middleware/createDevtools';
 import { flattenActions } from '../utils/flattenActions';
-import { type ToolStoreState } from './initialState';
-import { initialState } from './initialState';
-import { type BuiltinToolAction } from './slices/builtin';
-import { createBuiltinToolSlice } from './slices/builtin';
-import { type CustomPluginAction } from './slices/customPlugin';
-import { createCustomPluginSlice } from './slices/customPlugin';
-import { type KlavisStoreAction } from './slices/klavisStore';
-import { createKlavisStoreSlice } from './slices/klavisStore';
-import { type LobehubSkillStoreAction } from './slices/lobehubSkillStore';
-import { createLobehubSkillStoreSlice } from './slices/lobehubSkillStore';
-import { type PluginMCPStoreAction } from './slices/mcpStore';
-import { createMCPPluginStoreSlice } from './slices/mcpStore';
-import { type PluginStoreAction } from './slices/oldStore';
-import { createPluginStoreSlice } from './slices/oldStore';
-import { type PluginAction } from './slices/plugin';
-import { createPluginSlice } from './slices/plugin';
+import { initialState, type ToolStoreState } from './initialState';
+import { type AgentSkillsAction, createAgentSkillsSlice } from './slices/agentSkills';
+import { type BuiltinToolAction, createBuiltinToolSlice } from './slices/builtin';
+import { createCustomPluginSlice, type CustomPluginAction } from './slices/customPlugin';
+import { createKlavisStoreSlice, type KlavisStoreAction } from './slices/klavisStore';
+import {
+  createLobehubSkillStoreSlice,
+  type LobehubSkillStoreAction,
+} from './slices/lobehubSkillStore';
+import { createMCPPluginStoreSlice, type PluginMCPStoreAction } from './slices/mcpStore';
+import { createPluginStoreSlice, type PluginStoreAction } from './slices/oldStore';
+import { createPluginSlice, type PluginAction } from './slices/plugin';
 
 //  ===============  Aggregate createStoreFn ============ //
 
@@ -30,7 +26,8 @@ export type ToolStore = ToolStoreState &
   BuiltinToolAction &
   PluginMCPStoreAction &
   KlavisStoreAction &
-  LobehubSkillStoreAction;
+  LobehubSkillStoreAction &
+  AgentSkillsAction;
 
 type ToolStoreAction = CustomPluginAction &
   PluginAction &
@@ -38,7 +35,8 @@ type ToolStoreAction = CustomPluginAction &
   BuiltinToolAction &
   PluginMCPStoreAction &
   KlavisStoreAction &
-  LobehubSkillStoreAction;
+  LobehubSkillStoreAction &
+  AgentSkillsAction;
 
 const createStore: StateCreator<ToolStore, [['zustand/devtools', never]]> = (
   ...parameters: Parameters<StateCreator<ToolStore, [['zustand/devtools', never]]>>
@@ -52,6 +50,7 @@ const createStore: StateCreator<ToolStore, [['zustand/devtools', never]]> = (
     createMCPPluginStoreSlice(...parameters),
     createKlavisStoreSlice(...parameters),
     createLobehubSkillStoreSlice(...parameters),
+    createAgentSkillsSlice(...parameters),
   ]),
 });
 

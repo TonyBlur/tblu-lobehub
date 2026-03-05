@@ -6,11 +6,15 @@ import type { OpenAIChatMessage, UIChatMessage } from '@/types/index';
 
 import type { AgentInfo } from '../../processors/GroupRoleTransform';
 import type { AgentBuilderContext } from '../../providers/AgentBuilderContextInjector';
+import type { AgentManagementContext } from '../../providers/AgentManagementContextInjector';
+import type { DiscordContext } from '../../providers/DiscordContextProvider';
 import type { EvalContext } from '../../providers/EvalContextSystemInjector';
 import type { GroupAgentBuilderContext } from '../../providers/GroupAgentBuilderContextInjector';
 import type { GroupMemberInfo } from '../../providers/GroupContextInjector';
 import type { GTDPlan } from '../../providers/GTDPlanInjector';
 import type { GTDTodoList } from '../../providers/GTDTodoInjector';
+import type { SkillMeta } from '../../providers/SkillContextProvider';
+import type { ToolDiscoveryMeta } from '../../providers/ToolDiscoveryProvider';
 import type { LobeToolManifest } from '../tools/types';
 
 /**
@@ -44,6 +48,20 @@ export interface ToolsConfig {
   manifests?: LobeToolManifest[];
   /** Enabled tool IDs (kept for compatibility) */
   tools?: string[];
+}
+
+/**
+ * Skills configuration
+ */
+export interface SkillsConfig {
+  enabledSkills?: SkillMeta[];
+}
+
+/**
+ * Tool Discovery configuration
+ */
+export interface ToolDiscoveryConfig {
+  availableTools?: ToolDiscoveryMeta[];
 }
 
 /**
@@ -98,11 +116,18 @@ export interface UserMemoryActivityItem {
 }
 
 export interface UserMemoryIdentityItem {
+  capturedAt?: string | Date | null;
   description?: string | null;
   id?: string;
   role?: string | null;
   /** Identity type: personal (role), professional (occupation), demographic (attribute) */
   type?: 'demographic' | 'personal' | 'professional' | string | null;
+  [key: string]: unknown;
+}
+
+export interface UserMemoryPersonaItem {
+  narrative?: string | null;
+  tagline?: string | null;
   [key: string]: unknown;
 }
 
@@ -115,6 +140,7 @@ export interface UserMemoryData {
   contexts: UserMemoryContextItem[];
   experiences: UserMemoryExperienceItem[];
   identities?: UserMemoryIdentityItem[];
+  persona?: UserMemoryPersonaItem;
   preferences: UserMemoryPreferenceItem[];
 }
 
@@ -178,6 +204,10 @@ export interface MessagesEngineParams {
   /** Provider ID */
   provider: string;
 
+  // ========== System date ==========
+  /** Whether to inject current date into system message (default: true) */
+  enableSystemDate?: boolean;
+
   // ========== Agent configuration ==========
   /** Whether to enable history message count limit */
   enableHistoryCount?: boolean;
@@ -204,6 +234,14 @@ export interface MessagesEngineParams {
   /** Knowledge configuration */
   knowledge?: KnowledgeConfig;
 
+  // ========== Skills ==========
+  /** Skills configuration */
+  skillsConfig?: SkillsConfig;
+
+  // ========== Tool Discovery ==========
+  /** Tool Discovery configuration (available tools for dynamic activation) */
+  toolDiscoveryConfig?: ToolDiscoveryConfig;
+
   // ========== Tools ==========
   /** Tools configuration */
   toolsConfig?: ToolsConfig;
@@ -215,8 +253,12 @@ export interface MessagesEngineParams {
   // ========== Extended contexts (both frontend and backend) ==========
   /** Agent Builder context */
   agentBuilderContext?: AgentBuilderContext;
+  /** Discord context for injecting channel/guild info into system injection message */
+  discordContext?: DiscordContext;
   /** Eval context for injecting environment prompts into system message */
   evalContext?: EvalContext;
+  /** Agent Management context */
+  agentManagementContext?: AgentManagementContext;
   /** Agent group configuration for multi-agent scenarios */
   agentGroup?: AgentGroupConfig;
   /** Group Agent Builder context */
@@ -271,9 +313,13 @@ export interface MessagesEngineResult {
 
 export { type AgentInfo } from '../../processors/GroupRoleTransform';
 export { type AgentBuilderContext } from '../../providers/AgentBuilderContextInjector';
+export { type AgentManagementContext } from '../../providers/AgentManagementContextInjector';
+export { type DiscordContext } from '../../providers/DiscordContextProvider';
 export { type EvalContext } from '../../providers/EvalContextSystemInjector';
 export { type GroupAgentBuilderContext } from '../../providers/GroupAgentBuilderContextInjector';
 export { type GTDPlan } from '../../providers/GTDPlanInjector';
 export { type GTDTodoItem, type GTDTodoList } from '../../providers/GTDTodoInjector';
+export { type SkillMeta } from '../../providers/SkillContextProvider';
+export { type ToolDiscoveryMeta } from '../../providers/ToolDiscoveryProvider';
 export { type OpenAIChatMessage, type UIChatMessage } from '@/types/index';
 export { type FileContent, type KnowledgeBaseInfo } from '@lobechat/prompts';

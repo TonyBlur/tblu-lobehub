@@ -65,7 +65,7 @@ export class ChatCodeInterpreterActionImpl {
     const context = { operationId: interpreterOpId };
 
     try {
-      // TODO: 应该只下载 AI 用到的文件
+      // TODO: should only download files used by the AI
       const files: File[] = [];
       for (const message of dbMessageSelectors.dbUserMessages(this.#get())) {
         for (const file of message.fileList ?? []) {
@@ -139,7 +139,7 @@ export class ChatCodeInterpreterActionImpl {
 
       // For other errors, update message
       await this.#get().optimisticUpdatePluginState(id, { error }, context);
-      // 如果调用过程中出现了错误，不要触发 AI 消息
+      // If an error occurred during the call, do not trigger the AI message
       return;
     }
   };

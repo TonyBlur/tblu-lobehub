@@ -1,4 +1,4 @@
-import  { type AIChatModelCard, type AIImageModelCard } from '../types/aiModel';
+import { type AIChatModelCard, type AIImageModelCard } from '../types/aiModel';
 
 // https://siliconflow.cn/zh-cn/models
 const siliconcloudChatModels: AIChatModelCard[] = [
@@ -7,9 +7,33 @@ const siliconcloudChatModels: AIChatModelCard[] = [
       functionCall: true,
       reasoning: true,
     },
+    contextWindowTokens: 192_000,
+    description:
+      'MiniMax-M2.5 is the latest large language model developed by MiniMax, trained through large-scale reinforcement learning across hundreds of thousands of complex, real-world environments. Featuring an MoE architecture with 229 billion parameters, it achieves industry-leading performance in tasks such as programming, agent tool-calling, search, and office scenarios.',
+    displayName: 'MiniMax-M2.5 (Pro)',
+    id: 'Pro/MiniMaxAI/MiniMax-M2.5',
+    pricing: {
+      currency: 'CNY',
+      units: [
+        { name: 'textInput_cacheRead', rate: 0.21, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textInput', rate: 2.1, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textOutput', rate: 8.4, strategy: 'fixed', unit: 'millionTokens' },
+      ],
+    },
+    releasedAt: '2026-02-13',
+    settings: {
+      extendParams: ['reasoningBudgetToken'],
+    },
+    type: 'chat',
+  },
+  {
+    abilities: {
+      functionCall: true,
+      reasoning: true,
+    },
     contextWindowTokens: 198_000,
     description:
-      'GLM-5 是智谱推出的新一代大语言模型，专注于复杂系统工程和长周期 Agent 任务。模型参数扩展至 744B 参数（40B 激活），并集成了 DeepSeek Sparse Attention。',
+      "GLM-5 is Zhipu's next-generation large language model, focusing on complex system engineering and long-duration Agent tasks. The model parameters have been expanded to 744B (40B active) and integrate DeepSeek Sparse Attention.",
     displayName: 'GLM-5 (Pro)',
     id: 'Pro/zai-org/glm-5',
     pricing: {
@@ -54,6 +78,73 @@ const siliconcloudChatModels: AIChatModelCard[] = [
       ],
     },
     releasedAt: '2026-02-12',
+    settings: {
+      extendParams: ['enableReasoning', 'reasoningBudgetToken'],
+    },
+    type: 'chat',
+  },
+  {
+    abilities: {
+      functionCall: true,
+      vision: true,
+    },
+    contextWindowTokens: 131_072,
+    description:
+      'GLM-4.6V achieves state-of-the-art visual understanding accuracy at its parameter scale, and for the first time natively integrates Function Call capability into the visual model architecture, bridging the path from "visual perception" to "executable actions", providing a unified technical foundation for multimodal Agents in real-world business scenarios.',
+    displayName: 'GLM-4.6V',
+    id: 'zai-org/GLM-4.6V',
+    pricing: {
+      currency: 'CNY',
+      units: [
+        { name: 'textInput', rate: 1, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textOutput', rate: 3, strategy: 'fixed', unit: 'millionTokens' },
+      ],
+    },
+    releasedAt: '2025-12-08',
+    type: 'chat',
+  },
+  {
+    abilities: {
+      functionCall: true,
+      reasoning: true,
+    },
+    contextWindowTokens: 163_840,
+    description:
+      "DeepSeek-V3.2 is a model that combines high computational efficiency with excellent reasoning and Agent performance. Its approach is based on three major technological breakthroughs: DeepSeek Sparse Attention (DSA), an efficient attention mechanism that significantly reduces computational complexity while maintaining model performance, and is specifically optimized for long-context scenarios; a scalable reinforcement learning framework, through which the model's performance can rival GPT-5, and its high-compute version can rival Gemini-3.0-Pro in reasoning capabilities; and a large-scale Agent task synthesis pipeline, designed to integrate reasoning capabilities into tool-using scenarios, thereby improving instruction-following and generalization abilities in complex interactive environments. The model achieved gold medal results in the 2025 International Mathematical Olympiad (IMO) and International Informatics Olympiad (IOI).",
+    displayName: 'DeepSeek V3.2',
+    enabled: true,
+    id: 'deepseek-ai/DeepSeek-V3.2',
+    pricing: {
+      currency: 'CNY',
+      units: [
+        { name: 'textInput', rate: 2, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textOutput', rate: 3, strategy: 'fixed', unit: 'millionTokens' },
+      ],
+    },
+    releasedAt: '2025-12-01',
+    settings: {
+      extendParams: ['enableReasoning', 'reasoningBudgetToken'],
+    },
+    type: 'chat',
+  },
+  {
+    abilities: {
+      functionCall: true,
+      reasoning: true,
+    },
+    contextWindowTokens: 163_840,
+    description:
+      'DeepSeek-V3.2 is a model that combines high computational efficiency with excellent reasoning and Agent performance. Its approach is built on three key technological breakthroughs: DeepSeek Sparse Attention (DSA), an efficient attention mechanism that significantly reduces computational complexity while maintaining model performance, and is specifically optimized for long-context scenarios; a scalable reinforcement learning framework through which model performance can rival GPT-5, with its high-compute version matching Gemini-3.0-Pro in reasoning capabilities; and a large-scale Agent task synthesis pipeline aimed at integrating reasoning capabilities into tool use scenarios, thereby improving instruction following and generalization in complex interactive environments. The model achieved gold medal performance in the 2025 International Mathematical Olympiad (IMO) and International Olympiad in Informatics (IOI).',
+    displayName: 'DeepSeek V3.2 (Pro)',
+    id: 'Pro/deepseek-ai/DeepSeek-V3.2',
+    pricing: {
+      currency: 'CNY',
+      units: [
+        { name: 'textInput', rate: 2, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textOutput', rate: 3, strategy: 'fixed', unit: 'millionTokens' },
+      ],
+    },
+    releasedAt: '2025-12-01',
     settings: {
       extendParams: ['enableReasoning', 'reasoningBudgetToken'],
     },
@@ -191,7 +282,7 @@ const siliconcloudChatModels: AIChatModelCard[] = [
     },
     contextWindowTokens: 262_144,
     description:
-      "Kimi K2 Thinking is the latest and most powerful open-source thinking model. It greatly extends multi-step reasoning depth and sustains stable tool use across 200–300 consecutive calls, setting new records on Humanity's Last Exam (HLE), BrowseComp, and other benchmarks. It excels in coding, math, logic, and agent scenarios. Built on an MoE architecture with ~1T total parameters, it supports a 256K context window and tool calling.",
+      "Kimi K2 Thinking is the latest and most powerful open-source thinking model. It greatly extends multi-step reasoning depth and sustains stable tool use across 200–300 consecutive calls, setting new records on Humanity's Last Exam (HLE), BrowseComp, and other benchmarks. 'It excels in coding, math, logic, and agent scenarios. Built on an MoE architecture with ~1T total parameters, it supports a 256K context window and tool calling.",
     displayName: 'Kimi K2 Thinking',
     id: 'moonshotai/Kimi-K2-Thinking',
     pricing: {
@@ -235,7 +326,7 @@ const siliconcloudChatModels: AIChatModelCard[] = [
       functionCall: true,
       reasoning: true,
     },
-    contextWindowTokens: 128_000,
+    contextWindowTokens: 131_072,
     description:
       'MiniMax-M2 redefines agent efficiency. It is a compact, fast, cost-effective MoE model with 230B total and 10B active parameters, built for top-tier coding and agent tasks while retaining strong general intelligence. With only 10B active parameters, it rivals much larger models, making it ideal for high-efficiency applications.',
     displayName: 'MiniMax-M2',
@@ -559,55 +650,8 @@ const siliconcloudChatModels: AIChatModelCard[] = [
     },
     contextWindowTokens: 163_840,
     description:
-      'DeepSeek-V3.2-Exp is an experimental V3.2 release bridging to the next architecture. It adds DeepSeek Sparse Attention (DSA) on top of V3.1-Terminus to improve long-context training and inference efficiency, with optimizations for tool use, long-document understanding, and multi-step reasoning. It is ideal for exploring higher reasoning efficiency with large context budgets.',
-    displayName: 'DeepSeek V3.2 Exp',
-    id: 'deepseek-ai/DeepSeek-V3.2-Exp',
-    pricing: {
-      currency: 'CNY',
-      units: [
-        { name: 'textInput', rate: 2, strategy: 'fixed', unit: 'millionTokens' },
-        { name: 'textOutput', rate: 3, strategy: 'fixed', unit: 'millionTokens' },
-      ],
-    },
-    releasedAt: '2025-09-29',
-    settings: {
-      extendParams: ['enableReasoning', 'reasoningBudgetToken'],
-    },
-    type: 'chat',
-  },
-  {
-    abilities: {
-      functionCall: true,
-      reasoning: true,
-    },
-    contextWindowTokens: 163_840,
-    description:
-      'DeepSeek-V3.2-Exp is an experimental V3.2 release bridging to the next architecture. It adds DeepSeek Sparse Attention (DSA) on top of V3.1-Terminus to improve long-context training and inference efficiency, with optimizations for tool use, long-document understanding, and multi-step reasoning. It is ideal for exploring higher reasoning efficiency with large context budgets.',
-    displayName: 'DeepSeek V3.2 Exp (Pro)',
-    id: 'Pro/deepseek-ai/DeepSeek-V3.2-Exp',
-    pricing: {
-      currency: 'CNY',
-      units: [
-        { name: 'textInput', rate: 2, strategy: 'fixed', unit: 'millionTokens' },
-        { name: 'textOutput', rate: 3, strategy: 'fixed', unit: 'millionTokens' },
-      ],
-    },
-    releasedAt: '2025-09-29',
-    settings: {
-      extendParams: ['enableReasoning', 'reasoningBudgetToken'],
-    },
-    type: 'chat',
-  },
-  {
-    abilities: {
-      functionCall: true,
-      reasoning: true,
-    },
-    contextWindowTokens: 163_840,
-    description:
       'DeepSeek-V3.1-Terminus is an updated V3.1 model positioned as a hybrid agent LLM. It fixes user-reported issues and improves stability, language consistency, and reduces mixed Chinese/English and abnormal characters. It integrates Thinking and Non-thinking modes with chat templates for flexible switching. It also improves Code Agent and Search Agent performance for more reliable tool use and multi-step tasks.',
     displayName: 'DeepSeek V3.1 Terminus',
-    enabled: true,
     id: 'deepseek-ai/DeepSeek-V3.1-Terminus',
     pricing: {
       currency: 'CNY',
@@ -851,29 +895,6 @@ const siliconcloudChatModels: AIChatModelCard[] = [
       ],
     },
     releasedAt: '2025-08-11',
-    settings: {
-      extendParams: ['enableReasoning', 'reasoningBudgetToken'],
-    },
-    type: 'chat',
-  },
-  {
-    abilities: {
-      functionCall: true,
-      reasoning: true,
-    },
-    contextWindowTokens: 131_072,
-    description:
-      'GLM-4.5 is a base model built for agent applications using a Mixture-of-Experts architecture. It is deeply optimized for tool use, web browsing, software engineering, and frontend coding, and integrates with code agents like Claude Code and Roo Code. It uses hybrid reasoning to handle both complex reasoning and everyday scenarios.',
-    displayName: 'GLM-4.5',
-    id: 'zai-org/GLM-4.5',
-    pricing: {
-      currency: 'CNY',
-      units: [
-        { name: 'textInput', rate: 3.5, strategy: 'fixed', unit: 'millionTokens' },
-        { name: 'textOutput', rate: 14, strategy: 'fixed', unit: 'millionTokens' },
-      ],
-    },
-    releasedAt: '2025-07-28',
     settings: {
       extendParams: ['enableReasoning', 'reasoningBudgetToken'],
     },
@@ -1149,30 +1170,6 @@ const siliconcloudChatModels: AIChatModelCard[] = [
       ],
     },
     releasedAt: '2025-07-29',
-    type: 'chat',
-  },
-  {
-    abilities: {
-      functionCall: true,
-      reasoning: true,
-    },
-    contextWindowTokens: 131_072,
-    description:
-      'Qwen3 is a next-gen Tongyi Qwen model with major gains in reasoning, general ability, agent capability, and multilingual performance, and supports switching thinking modes.',
-    displayName: 'Qwen3 235B A22B',
-    id: 'Qwen/Qwen3-235B-A22B',
-    organization: 'Qwen',
-    pricing: {
-      currency: 'CNY',
-      units: [
-        { name: 'textInput', rate: 2.5, strategy: 'fixed', unit: 'millionTokens' },
-        { name: 'textOutput', rate: 10, strategy: 'fixed', unit: 'millionTokens' },
-      ],
-    },
-    releasedAt: '2025-04-28',
-    settings: {
-      extendParams: ['enableReasoning', 'reasoningBudgetToken'],
-    },
     type: 'chat',
   },
   {
@@ -1980,7 +1977,6 @@ const siliconcloudImageModels: AIImageModelCard[] = [
     description:
       'Kolors is a large-scale latent-diffusion text-to-image model by the Kuaishou Kolors team. Trained on billions of text-image pairs, it excels in visual quality, complex semantic accuracy, and Chinese/English text rendering, with strong Chinese content understanding and generation.',
     displayName: 'Kolors',
-    enabled: true,
     id: 'Kwai-Kolors/Kolors',
     parameters: {
       prompt: {
@@ -1999,7 +1995,6 @@ const siliconcloudImageModels: AIImageModelCard[] = [
     description:
       'Qwen-Image is a 20B-parameter image generation foundation model from the Qwen team. It makes major gains in complex text rendering and precise image editing, especially for high-fidelity Chinese/English text. It supports multi-line and paragraph layouts while keeping typography coherent. Beyond text rendering, it supports a wide range of styles from photorealistic to anime, and advanced editing like style transfer, object add/remove, detail enhancement, text editing, and pose control, aiming to be a comprehensive visual creation foundation.',
     displayName: 'Qwen-Image',
-    enabled: true,
     id: 'Qwen/Qwen-Image',
     parameters: {
       prompt: {
@@ -2022,7 +2017,6 @@ const siliconcloudImageModels: AIImageModelCard[] = [
     description:
       'Qwen-Image-Edit-2509 is the latest editing version of Qwen-Image from the Qwen team. Built on the 20B Qwen-Image model, it extends strong text rendering into image editing for precise text edits. It uses a dual-control architecture, sending inputs to Qwen2.5-VL for semantic control and a VAE encoder for appearance control, enabling both semantic- and appearance-level editing. It supports local edits (add/remove/modify) and higher-level semantic edits like IP creation and style transfer while preserving semantics. It achieves SOTA results on multiple benchmarks.',
     displayName: 'Qwen-Image-Edit (2509)',
-    enabled: true,
     id: 'Qwen/Qwen-Image-Edit-2509',
     parameters: {
       imageUrls: {

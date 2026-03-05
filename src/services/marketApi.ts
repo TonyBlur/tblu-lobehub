@@ -5,6 +5,7 @@ import {
 } from '@lobehub/market-sdk';
 
 import { lambdaClient } from '@/libs/trpc/client';
+import { discoverService } from '@/services/discover';
 import {
   type AgentForkRequest,
   type AgentForkResponse,
@@ -201,6 +202,57 @@ export class MarketApiService {
    */
   async getAgentGroupForkSource(identifier: string): Promise<AgentGroupForkSourceResponse> {
     return lambdaClient.market.agentGroup.getAgentGroupForkSource.query({ identifier });
+  }
+
+  // ==================== Skills API ====================
+
+  /**
+   * Search for skills in the LobeHub Market
+   */
+  async searchSkill(params: {
+    locale?: string;
+    order?: 'asc' | 'desc';
+    page?: number;
+    pageSize?: number;
+    q?: string;
+    sort?:
+      | 'createdAt'
+      | 'forks'
+      | 'installCount'
+      | 'name'
+      | 'relevance'
+      | 'stars'
+      | 'updatedAt'
+      | 'watchers';
+  }): Promise<{
+    items: Array<{
+      category?: string;
+      createdAt: string;
+      description: string;
+      installCount: number;
+      identifier: string;
+      name: string;
+      repository?: string;
+      sourceUrl?: string;
+      summary?: string;
+      updatedAt: string;
+      version?: string;
+    }>;
+    page: number;
+    pageSize: number;
+    total: number;
+  }> {
+    await discoverService.injectMPToken();
+
+    return lambdaClient.market.skill.searchSkill.query(params);
+  }
+
+  /**
+   * Get skill download URL from market
+   */
+  getSkillDownloadUrl(identifier: string): string {
+    const marketBaseUrl = process.env.NEXT_PUBLIC_MARKET_BASE_URL || 'https://market.lobehub.com';
+    return `${marketBaseUrl}/api/v1/skills/${identifier}/download`;
   }
 }
 

@@ -68,7 +68,7 @@ const lastDisplayMessageId = (s: ChatStoreState) => {
 // ============= Thread Handling ========== //
 
 const getChatsWithThread = (s: ChatStoreState, messages: UIChatMessage[]) => {
-  // 如果没有 activeThreadId，则返回所有的主消息
+  // If there is no activeThreadId, return all top-level messages
   if (!s.activeThreadId) return messages.filter((m) => !m.threadId);
 
   const thread = s.threadMaps[s.activeTopicId!]?.find((t) => t.id === s.activeThreadId);

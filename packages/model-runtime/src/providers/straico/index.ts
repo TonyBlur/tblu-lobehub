@@ -2,7 +2,7 @@ import { ModelProvider } from 'model-bank';
 
 import { createOpenAICompatibleRuntime } from '../../core/openaiCompatibleFactory';
 import { processMultiProviderModelList } from '../../utils/modelParse';
-import { StraicoChatModel, StraicoModelsResponse } from './type';
+import type { StraicoChatModel, StraicoModelsResponse } from './type';
 
 const formatPrice = (pricing?: { coins?: number; words?: number }) => {
   if (!pricing || typeof pricing.coins !== 'number' || typeof pricing.words !== 'number') {
@@ -27,7 +27,7 @@ export const LobeStraicoAI = createOpenAICompatibleRuntime({
   baseURL: 'https://api.straico.com/v0',
   chatCompletion: {
     handlePayload: (payload) => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars, unused-imports/no-unused-vars
+       
       const { model, ...rest } = payload;
 
       return {
@@ -55,7 +55,7 @@ export const LobeStraicoAI = createOpenAICompatibleRuntime({
       }
 
       const json: StraicoModelsResponse = await response.json();
-      const chatModels: StraicoChatModel[] = json?.data?.chat || []; // 另有 audio, image 模型待适配
+      const chatModels: StraicoChatModel[] = json?.data?.chat || []; // There are also audio and image models to be adapted
 
       // Transform Straico models to standardized format
       const formattedModels = chatModels.map((model) => {

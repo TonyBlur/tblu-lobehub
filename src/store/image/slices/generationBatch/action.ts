@@ -167,7 +167,7 @@ export class GenerationBatchActionImpl {
     return useClientDataSWR<GenerationBatch[]>(
       topicId ? [SWR_USE_FETCH_GENERATION_BATCHES, topicId] : null,
       async ([, topicId]: [string, string]) => {
-        return generationBatchService.getGenerationBatches(topicId);
+        return generationBatchService.getGenerationBatches(topicId, 'image');
       },
       {
         onSuccess: (data) => {
@@ -248,7 +248,7 @@ export class GenerationBatchActionImpl {
           // Reset error state on success
           isErrorRef.current = false;
 
-          // 找到对应的 batch，generation 数据库记录包含 generationBatchId
+          // Find the corresponding batch; the generation database record contains generationBatchId
           const currentBatches = this.#get().generationBatchesMap[topicId] || [];
           const targetBatch = currentBatches.find((batch) =>
             batch.generations.some((gen) => gen.id === generationId),
@@ -263,7 +263,7 @@ export class GenerationBatchActionImpl {
             requestCountRef.current = 0;
 
             if (data.generation) {
-              // 更新 generation 数据
+              // Update generation data
               this.#get().internal_dispatchGenerationBatch(
                 topicId,
                 {

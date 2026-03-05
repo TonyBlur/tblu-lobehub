@@ -1,4 +1,3 @@
-/* eslint-disable sort-keys-fix/sort-keys-fix, typescript-sort-keys/interface */
 // Disable the auto sort key eslint rule to make the code more logic and readable
 import { ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
 import { LOADING_FLAT } from '@lobechat/const';
@@ -63,11 +62,10 @@ export const conversationLifecycle = (set: Setter, get: () => ChatStore, _api?: 
 
 export class ConversationLifecycleActionImpl {
   readonly #get: () => ChatStore;
-  readonly #set: Setter;
 
   constructor(set: Setter, get: () => ChatStore, _api?: unknown) {
     void _api;
-    this.#set = set;
+    void set;
     this.#get = get;
   }
 
@@ -156,7 +154,7 @@ export class ConversationLifecycleActionImpl {
       },
     });
 
-    // 构造服务端模式临时消息的本地媒体预览（优先使用 S3 URL）
+    // Construct local media preview for server-mode temporary messages (S3 URL takes priority)
     const filesInStore = getFileStoreState().chatUploadFileList;
     const tempImages: ChatImageItem[] = filesInStore
       .filter((f) => f.file?.type?.startsWith('image'))
@@ -315,7 +313,7 @@ export class ConversationLifecycleActionImpl {
         }
       }
     } finally {
-      // 创建了新topic 或者 用户 cancel 了消息（或者失败了），此时无 data
+      // A new topic was created, or the user cancelled the message (or it failed), so data is absent here
       if (data?.isCreateNewTopic || !data) {
         this.#get().internal_dispatchMessage(
           { type: 'deleteMessages', ids: [tempId, tempAssistantId] },

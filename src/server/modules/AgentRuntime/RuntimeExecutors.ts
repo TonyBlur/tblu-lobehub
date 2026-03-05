@@ -4,8 +4,8 @@ import {
   type CallLLMPayload,
   type GeneralAgentCallLLMResultPayload,
   type InstructionExecutor,
+  UsageCounter,
 } from '@lobechat/agent-runtime';
-import { UsageCounter } from '@lobechat/agent-runtime';
 import { ToolNameResolver } from '@lobechat/context-engine';
 import { parse } from '@lobechat/conversation-flow';
 import { consumeStreamUntilDone } from '@lobechat/model-runtime';
@@ -33,12 +33,14 @@ const TOOL_PRICING: Record<string, number> = {
 
 export interface RuntimeExecutorContext {
   agentConfig?: any;
+  discordContext?: any;
   evalContext?: EvalContext;
   fileService?: any;
   messageModel: MessageModel;
   operationId: string;
   serverDB: LobeChatDatabase;
   stepIndex: number;
+  stream?: boolean;
   streamManager: IStreamEventManager;
   toolExecutionService: ToolExecutionService;
   topicId?: string;
@@ -105,11 +107,7 @@ export const createRuntimeExecutors = (
 
     // Publish stream start event
     await streamManager.publishStreamEvent(operationId, {
-      data: {
-        assistantMessage: assistantMessageItem,
-        model,
-        provider,
-      },
+      data: { assistantMessage: assistantMessageItem, model, provider },
       stepIndex,
       type: 'stream_start',
     });
@@ -137,7 +135,8 @@ export const createRuntimeExecutors = (
       let processedMessages;
       if (agentConfig) {
         const { LOBE_DEFAULT_MODEL_LIST } = await import('model-bank');
-        const processedResult = await serverMessagesEngine({
+
+        const contextEngineInput = {
           capabilities: {
             isCanUseFC: (m: string, p: string) => {
               const info = LOBE_DEFAULT_MODEL_LIST.find(
@@ -158,6 +157,7 @@ export const createRuntimeExecutors = (
               return info?.abilities?.vision ?? true;
             },
           },
+          discordContext: ctx.discordContext,
           enableHistoryCount: agentConfig.chatConfig?.enableHistoryCount ?? undefined,
           evalContext: ctx.evalContext,
           forceFinish: state.forceFinish,
@@ -184,8 +184,17 @@ export const createRuntimeExecutors = (
           toolsConfig: {
             tools: agentConfig.plugins ?? [],
           },
-        });
-        processedMessages = processedResult;
+          userMemory: state.metadata?.userMemory,
+        };
+
+        processedMessages = await serverMessagesEngine(contextEngineInput);
+
+        // Emit context engine event for tracing (captures input params and final LLM messages)
+        events.push({
+          input: contextEngineInput,
+          output: processedMessages,
+          type: 'context_engine_result',
+        } as any);
       } else {
         processedMessages = llmPayload.messages;
       }
@@ -194,7 +203,8 @@ export const createRuntimeExecutors = (
       const modelRuntime = await initModelRuntimeFromDB(ctx.serverDB, ctx.userId!, provider);
 
       // Construct ChatStreamPayload
-      const chatPayload = { messages: processedMessages, model, tools };
+      const stream = ctx.stream ?? true;
+      const chatPayload = { messages: processedMessages, model, stream, tools };
 
       log(
         `${stagePrefix} calling model-runtime chat (model: %s, messages: %d, tools: %d)`,
@@ -560,6 +570,7 @@ export const createRuntimeExecutors = (
       // Execute tool using ToolExecutionService
       log(`[${operationLogId}] Executing tool ${toolName} ...`);
       const executionResult = await toolExecutionService.executeTool(chatToolPayload, {
+        memoryToolPermission: agentConfig?.chatConfig?.memory?.toolPermission,
         serverDB: ctx.serverDB,
         toolManifestMap: state.toolManifestMap,
         toolResultMaxLength,
@@ -736,6 +747,7 @@ export const createRuntimeExecutors = (
         try {
           log(`[${operationLogId}] Executing tool ${toolName} ...`);
           const executionResult = await toolExecutionService.executeTool(chatToolPayload, {
+            memoryToolPermission: state.metadata?.agentConfig?.chatConfig?.memory?.toolPermission,
             serverDB: ctx.serverDB,
             toolManifestMap: state.toolManifestMap,
             topicId: ctx.topicId,
@@ -795,16 +807,14 @@ export const createRuntimeExecutors = (
 
           events.push({ id: chatToolPayload.id, result: executionResult, type: 'tool_result' });
 
-          // Accumulate usage
+          // Collect per-tool usage for post-batch accumulation
           const toolCost = TOOL_PRICING[toolName] || 0;
-          UsageCounter.accumulateTool({
-            cost: state.cost,
+          toolResults.at(-1).usageParams = {
             executionTime,
             success: isSuccess,
             toolCost,
             toolName,
-            usage: state.usage,
-          });
+          };
         } catch (error) {
           console.error(`[${operationLogId}] Tool execution failed for ${toolName}:`, error);
 
@@ -827,8 +837,21 @@ export const createRuntimeExecutors = (
       `[${operationLogId}][call_tools_batch] All tools executed, created ${toolMessageIds.length} tool messages`,
     );
 
-    // Refresh messages from database to ensure state is in sync
+    // Accumulate tool usage sequentially after all tools have finished
     const newState = structuredClone(state);
+    for (const result of toolResults) {
+      if (result.usageParams) {
+        const { usage, cost } = UsageCounter.accumulateTool({
+          ...result.usageParams,
+          cost: newState.cost,
+          usage: newState.usage,
+        });
+        newState.usage = usage;
+        if (cost) newState.cost = cost;
+      }
+    }
+
+    // Refresh messages from database to ensure state is in sync
 
     // Query latest messages from database
     // Must pass agentId to ensure correct query scope, otherwise when topicId is undefined,

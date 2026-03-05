@@ -6,6 +6,7 @@ import type { IThreadType } from './topic/thread';
  * - thread: Agent thread conversation
  * - group: Group main conversation
  * - group_agent: Agent conversation within a group
+ * - sub_agent: Agent-to-agent communication (non-group, uses subAgentId for config/display only)
  */
 export type MessageMapScope =
   | 'main'
@@ -14,7 +15,8 @@ export type MessageMapScope =
   | 'group_agent'
   | 'group_agent_builder'
   | 'page'
-  | 'agent_builder';
+  | 'agent_builder'
+  | 'sub_agent';
 
 /**
  * Context for generating message map key with scope-driven architecture
@@ -73,7 +75,6 @@ export interface MessageMapContext {
   topicId?: string | null;
 }
 
-/* eslint-disable typescript-sort-keys/interface */
 /**
  * Context for identifying a conversation or message list
  * This is the standard type for all conversation-related context passing

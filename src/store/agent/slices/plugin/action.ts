@@ -16,11 +16,10 @@ export const createPluginSlice = (set: Setter, get: () => AgentStore, _api?: unk
 
 export class PluginSliceActionImpl {
   readonly #get: () => AgentStore;
-  readonly #set: Setter;
 
   constructor(set: Setter, get: () => AgentStore, _api?: unknown) {
     void _api;
-    this.#set = set;
+    void set;
     this.#get = get;
   }
 
@@ -30,6 +29,7 @@ export class PluginSliceActionImpl {
 
   togglePlugin = async (id: string, open?: boolean): Promise<void> => {
     const originConfig = agentSelectors.currentAgentConfig(this.#get());
+    if (!originConfig) return;
 
     const config = produce(originConfig, (draft) => {
       draft.plugins = produce(draft.plugins || [], (plugins) => {

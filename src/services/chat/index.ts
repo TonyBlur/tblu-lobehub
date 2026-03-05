@@ -133,6 +133,7 @@ class ChatService {
       chatConfig,
       enabledManifests = [],
       enabledToolIds = [],
+      plugins,
       tools,
     } = resolvedAgentConfig;
 
@@ -251,6 +252,7 @@ class ChatService {
       manifests: enabledManifests,
       messages,
       model: payload.model,
+      plugins,
       provider: payload.provider!,
       sessionId: options?.trace?.sessionId,
       stepContext: options?.stepContext,
@@ -421,7 +423,7 @@ class ChatService {
 
     return fetchSSE(API_ENDPOINTS.chat(provider), {
       body: JSON.stringify(payload),
-      fetcher: fetcher,
+      fetcher,
       headers,
       method: 'POST',
       onAbort: options?.onAbort,

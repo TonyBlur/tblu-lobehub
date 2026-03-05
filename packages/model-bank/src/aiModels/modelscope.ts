@@ -26,10 +26,20 @@ const modelscopeChatModels: AIChatModelCard[] = [
       reasoning: true,
     },
     contextWindowTokens: 131_072,
+    displayName: 'DeepSeek V3.2',
+    enabled: true,
+    id: 'deepseek-ai/DeepSeek-V3.2',
+    type: 'chat',
+  },
+  {
+    abilities: {
+      functionCall: true,
+      reasoning: true,
+    },
+    contextWindowTokens: 131_072,
     description:
       'DeepSeek V3.2 Exp uses a hybrid reasoning architecture and supports both thinking and non-thinking modes.',
     displayName: 'DeepSeek V3.2 Exp',
-    enabled: true,
     id: 'deepseek-ai/DeepSeek-V3.2-Exp',
     type: 'chat',
   },

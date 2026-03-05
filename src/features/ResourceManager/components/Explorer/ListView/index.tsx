@@ -9,13 +9,13 @@ import { useTranslation } from 'react-i18next';
 import { type VirtuosoHandle } from 'react-virtuoso';
 import { Virtuoso } from 'react-virtuoso';
 
-import { useDragActive } from '@/app/[variants]/(main)/resource/features/DndContextWrapper';
-import { useFolderPath } from '@/app/[variants]/(main)/resource/features/hooks/useFolderPath';
+import { useDragActive } from '@/routes/(main)/resource/features/DndContextWrapper';
+import { useFolderPath } from '@/routes/(main)/resource/features/hooks/useFolderPath';
 import {
   useResourceManagerFetchFolderBreadcrumb,
   useResourceManagerStore,
-} from '@/app/[variants]/(main)/resource/features/store';
-import { sortFileList } from '@/app/[variants]/(main)/resource/features/store/selectors';
+} from '@/routes/(main)/resource/features/store';
+import { sortFileList } from '@/routes/(main)/resource/features/store/selectors';
 import { useFileStore } from '@/store/file';
 import { useFetchResources } from '@/store/file/slices/resource/hooks';
 import { useGlobalStore } from '@/store/global';
@@ -323,6 +323,7 @@ const ListView = memo(function ListView() {
   }, [clearScrollTimers]);
 
   // Memoize footer component to show skeleton loaders when loading more
+  // eslint-disable-next-line @eslint-react/no-nested-component-definitions
   const Footer = useCallback(() => {
     if (isLoadingMore && hasMore) return <ListViewSkeleton columnWidths={columnWidths} />;
 

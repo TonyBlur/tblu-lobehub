@@ -4,6 +4,7 @@ import { GenerationBatchModel } from '@/database/models/generationBatch';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { FileService } from '@/server/services/file';
+import { getVideoAvgLatency } from '@/server/services/generation/latency';
 
 const generationBatchProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
@@ -47,9 +48,25 @@ export const generationBatchRouter = router({
     }),
 
   getGenerationBatches: generationBatchProcedure
-    .input(z.object({ topicId: z.string() }))
+    .input(z.object({ topicId: z.string(), type: z.enum(['image', 'video']).optional() }))
     .query(async ({ ctx, input }) => {
-      return ctx.generationBatchModel.queryGenerationBatchesByTopicIdWithGenerations(input.topicId);
+      const batches = await ctx.generationBatchModel.queryGenerationBatchesByTopicIdWithGenerations(
+        input.topicId,
+      );
+
+      if (input.type !== 'video') return batches;
+
+      const uniqueModels = [...new Set(batches.map((b) => b.model))];
+      const latencyMap = new Map<string, number | null>();
+
+      await Promise.all(
+        uniqueModels.map(async (model) => {
+          const latency = await getVideoAvgLatency(model).catch(() => null);
+          latencyMap.set(model, latency);
+        }),
+      );
+
+      return batches.map((b) => ({ ...b, avgLatencyMs: latencyMap.get(b.model) ?? null }));
     }),
 });
 

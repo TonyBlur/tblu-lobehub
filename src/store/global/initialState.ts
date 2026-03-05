@@ -57,13 +57,11 @@ export enum SettingsTabs {
   Security = 'security',
   Skill = 'skill',
 
-  /* eslint-disable typescript-sort-keys/string-enum */
   Stats = 'stats',
   Storage = 'storage',
   SystemTools = 'system-tools',
   TTS = 'tts',
   Usage = 'usage',
-  /* eslint-enable typescript-sort-keys/string-enum */
 }
 
 /**
@@ -101,7 +99,6 @@ export interface SystemStatus {
    * Group Agent Builder panel width
    */
   groupAgentBuilderPanelWidth?: number;
-  hideGemini2_5FlashImagePreviewChineseWarning?: boolean;
   hidePWAInstaller?: boolean;
   hideThreadLimitAlert?: boolean;
   hideTopicSharePrivacyWarning?: boolean;
@@ -219,7 +216,6 @@ export const INITIAL_STATUS = {
   fileManagerViewMode: 'list' as const,
   filePanelWidth: 320,
   groupAgentBuilderPanelWidth: 360,
-  hideGemini2_5FlashImagePreviewChineseWarning: false,
   hidePWAInstaller: false,
   hideThreadLimitAlert: false,
   hideTopicSharePrivacyWarning: false,

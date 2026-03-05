@@ -27,11 +27,10 @@ export const agentSlice = (set: Setter, get: () => ChatStore, _api?: unknown) =>
 
 export class AgentActionImpl {
   readonly #get: () => ChatStore;
-  readonly #set: Setter;
 
   constructor(set: Setter, get: () => ChatStore, _api?: unknown) {
     void _api;
-    this.#set = set;
+    void set;
     this.#get = get;
   }
 
@@ -73,10 +72,10 @@ export class AgentActionImpl {
       },
     });
 
-    // 停止 loading 状态
+    // Stop loading state
     this.#get().internal_toggleMessageLoading(false, assistantId);
 
-    // 清理操作 (this will cancel the operation)
+    // Clean up operation (this will cancel the operation)
     this.#get().internal_cleanupAgentOperation(assistantId);
   };
 
@@ -92,7 +91,7 @@ export class AgentActionImpl {
       return;
     }
 
-    // 更新操作元数据
+    // Update operation metadata
     this.#get().updateOperationMetadata(operationId, {
       lastEventId: event.timestamp.toString(),
       stepCount: event.stepIndex,
@@ -108,7 +107,7 @@ export class AgentActionImpl {
       }
 
       case 'heartbeat': {
-        // 心跳事件，保持连接活跃
+        // Heartbeat event, keeps the connection alive
         break;
       }
 
@@ -163,12 +162,12 @@ export class AgentActionImpl {
       }
 
       case 'stream_chunk': {
-        // 处理流式内容块
+        // Handle streaming content chunk
         const { chunkType } = event.data || {};
 
         switch (chunkType) {
           case 'text': {
-            // 更新文本内容
+            // Update text content
             context.content += event.data.content;
             log(`Stream(${event.operationId}) chunk type=${chunkType}: `, event.data.content);
 
@@ -181,7 +180,7 @@ export class AgentActionImpl {
           }
 
           case 'reasoning': {
-            // 更新文本内容
+            // Update text content
             context.reasoning += event.data.reasoning;
             log(`Stream(${event.operationId}) chunk type=${chunkType}: `, event.data.reasoning);
 
@@ -209,7 +208,7 @@ export class AgentActionImpl {
       }
 
       case 'stream_end': {
-        // 流式结束，更新最终内容
+        // Stream ended, update final content
         const { finalContent, toolCalls, reasoning, imageList, grounding } = event.data || {};
         log(`Stream ended for ${assistantId}:`, {
           hasFinalContent: !!finalContent,
@@ -234,11 +233,11 @@ export class AgentActionImpl {
           });
         }
 
-        // 停止 loading 状态
+        // Stop loading state
         log(`Stopping loading for ${assistantId}`);
         this.#get().internal_toggleMessageLoading(false, assistantId);
 
-        // 显示桌面通知
+        // Show desktop notification
         if (isDesktop) {
           try {
             const { desktopNotificationService } =
@@ -282,14 +281,14 @@ export class AgentActionImpl {
         const { phase, toolCall, pendingToolsCalling, requiresApproval } = event.data || {};
 
         if (phase === 'human_approval' && requiresApproval) {
-          // 需要人工批准
+          // Requires human approval
           log(`Human approval required for ${assistantId}:`, pendingToolsCalling);
           this.#get().updateOperationMetadata(operationId, {
             needsHumanInput: true,
             pendingApproval: pendingToolsCalling,
           });
 
-          // 停止 loading 状态，等待人工干预
+          // Stop loading state, waiting for human intervention
           log(`Stopping loading for human approval: ${assistantId}`);
           this.#get().internal_toggleMessageLoading(false, assistantId);
         } else if (phase === 'tool_execution' && toolCall) {
@@ -303,10 +302,10 @@ export class AgentActionImpl {
 
         if (phase === 'tool_execution' && result) {
           log(`Tool execution completed for ${assistantId} in ${executionTime}ms:`, result);
-          // 刷新消息以显示工具结果
+          // Refresh messages to display tool results
           await this.#get().refreshMessages();
         } else if (phase === 'execution_complete' && finalState) {
-          // Agent 执行完成
+          // Agent execution complete
           log(`Agent execution completed for ${assistantId}:`, finalState);
           this.#get().updateOperationMetadata(operationId, {
             finalStatus: finalState.status,
@@ -356,17 +355,17 @@ export class AgentActionImpl {
     try {
       log(`Handling human intervention ${action} for operation ${messageOpId}:`, data);
 
-      // 发送人工干预请求
+      // Send human intervention request
       await agentRuntimeService.handleHumanIntervention({
         action: action as any,
         data,
         operationId: messageOpId,
       });
 
-      // 重新开始 loading 状态
+      // Resume loading state
       this.#get().internal_toggleMessageLoading(true, assistantId);
 
-      // 清除人工干预状态
+      // Clear human intervention state
       this.#get().updateOperationMetadata(messageOpId, {
         needsHumanInput: false,
         pendingApproval: undefined,

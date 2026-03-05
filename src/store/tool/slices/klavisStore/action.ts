@@ -1,4 +1,4 @@
-import { enableMapSet, produce } from 'immer';
+import { produce } from 'immer';
 import { type SWRResponse } from 'swr';
 import useSWR from 'swr';
 
@@ -16,8 +16,6 @@ import {
   type KlavisTool,
 } from './types';
 import { KlavisServerStatus } from './types';
-
-enableMapSet();
 
 const n = setNamespace('klavisStore');
 
@@ -60,7 +58,7 @@ export class KlavisStoreActionImpl {
         toolName,
       });
 
-      console.log('toolsClient.klavis.callTool-response', response);
+      console.info('toolsClient.klavis.callTool-response', response);
 
       this.#set(
         produce((draft: KlavisStoreState) => {
