@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 
-// ==================== Import after mocks ====================
 import type { BotCallbackBody } from '../BotCallbackService';
 import { BotCallbackService } from '../BotCallbackService';
 
@@ -13,18 +12,36 @@ const mockFindById = vi.hoisted(() => vi.fn());
 const mockTopicUpdate = vi.hoisted(() => vi.fn());
 const mockGenerateTopicTitle = vi.hoisted(() => vi.fn());
 
-// Discord REST mock methods
-const mockDiscordEditMessage = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
-const mockDiscordTriggerTyping = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
-const mockDiscordRemoveOwnReaction = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
-const mockDiscordCreateMessage = vi.hoisted(() => vi.fn().mockResolvedValue({ id: 'new-msg' }));
-const mockDiscordUpdateChannelName = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+// Unified messenger mock methods (used by all platforms via PlatformClient)
+const mockEditMessage = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const mockTriggerTyping = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const mockRemoveReaction = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const mockCreateMessage = vi.hoisted(() => vi.fn().mockResolvedValue({ id: 'new-msg' }));
+const mockUpdateThreadName = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
-// Telegram REST mock methods
-const mockTelegramSendMessage = vi.hoisted(() => vi.fn().mockResolvedValue({ message_id: 12345 }));
-const mockTelegramEditMessageText = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
-const mockTelegramRemoveMessageReaction = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
-const mockTelegramSendChatAction = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+// Mock PlatformClient's getMessenger
+const mockGetMessenger = vi.hoisted(() =>
+  vi.fn().mockImplementation(() => ({
+    createMessage: mockCreateMessage,
+    editMessage: mockEditMessage,
+    removeReaction: mockRemoveReaction,
+    triggerTyping: mockTriggerTyping,
+    updateThreadName: mockUpdateThreadName,
+  })),
+);
+
+const mockCreateBot = vi.hoisted(() =>
+  vi.fn().mockImplementation(() => ({
+    applicationId: 'mock-app',
+    createAdapter: () => ({}),
+    extractChatId: (id: string) => id,
+    getMessenger: mockGetMessenger,
+    parseMessageId: (id: string) => id,
+    id: 'mock',
+    start: vi.fn(),
+    stop: vi.fn(),
+  })),
+);
 
 // ==================== vi.mock ====================
 
@@ -47,29 +64,34 @@ vi.mock('@/server/modules/KeyVaultsEncrypt', () => ({
   },
 }));
 
+vi.mock('@/server/modules/AgentRuntime/redis', () => ({
+  getAgentRuntimeRedisClient: vi.fn().mockReturnValue(null),
+}));
+
+vi.mock('../AgentBridgeService', () => ({
+  AgentBridgeService: {
+    clearActiveThread: vi.fn(),
+  },
+}));
+
 vi.mock('@/server/services/systemAgent', () => ({
   SystemAgentService: vi.fn().mockImplementation(() => ({
     generateTopicTitle: mockGenerateTopicTitle,
   })),
 }));
 
-vi.mock('../platforms/discord/restApi', () => ({
-  DiscordRestApi: vi.fn().mockImplementation(() => ({
-    createMessage: mockDiscordCreateMessage,
-    editMessage: mockDiscordEditMessage,
-    removeOwnReaction: mockDiscordRemoveOwnReaction,
-    triggerTyping: mockDiscordTriggerTyping,
-    updateChannelName: mockDiscordUpdateChannelName,
-  })),
-}));
-
-vi.mock('../platforms/telegram/restApi', () => ({
-  TelegramRestApi: vi.fn().mockImplementation(() => ({
-    editMessageText: mockTelegramEditMessageText,
-    removeMessageReaction: mockTelegramRemoveMessageReaction,
-    sendChatAction: mockTelegramSendChatAction,
-    sendMessage: mockTelegramSendMessage,
-  })),
+vi.mock('../platforms', () => ({
+  platformRegistry: {
+    getPlatform: vi.fn().mockImplementation((platform: string) => {
+      if (platform === 'unknown') return undefined;
+      return {
+        clientFactory: { createClient: mockCreateBot },
+        credentials: [],
+        name: platform,
+        id: platform,
+      };
+    }),
+  },
 }));
 
 // ==================== Helpers ====================
@@ -78,8 +100,8 @@ const FAKE_DB = {} as any;
 const FAKE_BOT_TOKEN = 'fake-bot-token-123';
 const FAKE_CREDENTIALS = JSON.stringify({ botToken: FAKE_BOT_TOKEN });
 
-function setupCredentials(credentials = FAKE_CREDENTIALS) {
-  mockFindByPlatformAndAppId.mockResolvedValue({ credentials });
+function setupCredentials(credentials = FAKE_CREDENTIALS, extra?: Record<string, unknown>) {
+  mockFindByPlatformAndAppId.mockResolvedValue({ credentials, ...extra });
   mockInitWithEnvKey.mockResolvedValue({ decrypt: mockDecrypt });
   mockDecrypt.mockResolvedValue({ plaintext: credentials });
 }
@@ -110,6 +132,15 @@ describe('BotCallbackService', () => {
     vi.clearAllMocks();
     service = new BotCallbackService(FAKE_DB);
     setupCredentials();
+
+    // Default: getMessenger returns the main messenger mock
+    mockGetMessenger.mockImplementation(() => ({
+      createMessage: mockCreateMessage,
+      editMessage: mockEditMessage,
+      removeReaction: mockRemoveReaction,
+      triggerTyping: mockTriggerTyping,
+      updateThreadName: mockUpdateThreadName,
+    }));
   });
 
   // ==================== Platform detection ====================
@@ -153,17 +184,6 @@ describe('BotCallbackService', () => {
       );
     });
 
-    it('should throw when credentials have no botToken', async () => {
-      const noTokenCreds = JSON.stringify({ someOtherKey: 'value' });
-      setupCredentials(noTokenCreds);
-
-      const body = makeBody({ type: 'step' });
-
-      await expect(service.handleCallback(body)).rejects.toThrow(
-        'Bot credentials incomplete for discord appId=app-123',
-      );
-    });
-
     it('should fall back to raw credentials when decryption fails', async () => {
       mockFindByPlatformAndAppId.mockResolvedValue({ credentials: FAKE_CREDENTIALS });
       mockInitWithEnvKey.mockResolvedValue({
@@ -179,7 +199,7 @@ describe('BotCallbackService', () => {
       // Should not throw because it falls back to raw JSON parse
       await service.handleCallback(body);
 
-      expect(mockDiscordEditMessage).toHaveBeenCalled();
+      expect(mockEditMessage).toHaveBeenCalled();
     });
   });
 
@@ -196,11 +216,7 @@ describe('BotCallbackService', () => {
 
       await service.handleCallback(body);
 
-      expect(mockDiscordEditMessage).toHaveBeenCalledWith(
-        'channel-id',
-        'progress-msg-1',
-        expect.any(String),
-      );
+      expect(mockEditMessage).toHaveBeenCalledWith('progress-msg-1', expect.any(String));
     });
 
     it('should route completion type to handleCompletion', async () => {
@@ -212,8 +228,7 @@ describe('BotCallbackService', () => {
 
       await service.handleCallback(body);
 
-      expect(mockDiscordEditMessage).toHaveBeenCalledWith(
-        'channel-id',
+      expect(mockEditMessage).toHaveBeenCalledWith(
         'progress-msg-1',
         expect.stringContaining('Here is the answer.'),
       );
@@ -231,7 +246,7 @@ describe('BotCallbackService', () => {
 
       await service.handleCallback(body);
 
-      expect(mockDiscordEditMessage).not.toHaveBeenCalled();
+      expect(mockEditMessage).not.toHaveBeenCalled();
     });
 
     it('should edit progress message and trigger typing for non-final LLM step', async () => {
@@ -245,8 +260,8 @@ describe('BotCallbackService', () => {
 
       await service.handleCallback(body);
 
-      expect(mockDiscordEditMessage).toHaveBeenCalledTimes(1);
-      expect(mockDiscordTriggerTyping).toHaveBeenCalledTimes(1);
+      expect(mockEditMessage).toHaveBeenCalledTimes(1);
+      expect(mockTriggerTyping).toHaveBeenCalledTimes(1);
     });
 
     it('should NOT trigger typing for final LLM response (no tool calls + has content)', async () => {
@@ -260,8 +275,8 @@ describe('BotCallbackService', () => {
 
       await service.handleCallback(body);
 
-      expect(mockDiscordEditMessage).toHaveBeenCalledTimes(1);
-      expect(mockDiscordTriggerTyping).not.toHaveBeenCalled();
+      expect(mockEditMessage).toHaveBeenCalledTimes(1);
+      expect(mockTriggerTyping).not.toHaveBeenCalled();
     });
 
     it('should handle tool step type', async () => {
@@ -275,12 +290,12 @@ describe('BotCallbackService', () => {
 
       await service.handleCallback(body);
 
-      expect(mockDiscordEditMessage).toHaveBeenCalledTimes(1);
-      expect(mockDiscordTriggerTyping).toHaveBeenCalledTimes(1);
+      expect(mockEditMessage).toHaveBeenCalledTimes(1);
+      expect(mockTriggerTyping).toHaveBeenCalledTimes(1);
     });
 
     it('should not throw when edit message fails during step', async () => {
-      mockDiscordEditMessage.mockRejectedValueOnce(new Error('Discord API error'));
+      mockEditMessage.mockRejectedValueOnce(new Error('API error'));
 
       const body = makeBody({
         content: 'Processing...',
@@ -306,8 +321,7 @@ describe('BotCallbackService', () => {
 
       await service.handleCallback(body);
 
-      expect(mockDiscordEditMessage).toHaveBeenCalledWith(
-        'channel-id',
+      expect(mockEditMessage).toHaveBeenCalledWith(
         'progress-msg-1',
         expect.stringContaining('Model quota exceeded'),
       );
@@ -321,11 +335,37 @@ describe('BotCallbackService', () => {
 
       await service.handleCallback(body);
 
-      expect(mockDiscordEditMessage).toHaveBeenCalledWith(
-        'channel-id',
+      expect(mockEditMessage).toHaveBeenCalledWith(
         'progress-msg-1',
         expect.stringContaining('Agent execution failed'),
       );
+    });
+
+    it('should render stopped message when reason is interrupted', async () => {
+      const body = makeBody({
+        lastAssistantContent: 'Partial answer that should not be shown',
+        reason: 'interrupted',
+        type: 'completion',
+      });
+
+      await service.handleCallback(body);
+
+      expect(mockCreateMessage).toHaveBeenCalledWith('Execution stopped.');
+      expect(mockEditMessage).not.toHaveBeenCalled();
+    });
+
+    it('should render custom stopped message when interrupted has errorMessage', async () => {
+      const body = makeBody({
+        errorMessage: 'Execution stopped by user.',
+        lastAssistantContent: 'Partial answer that should not be shown',
+        reason: 'interrupted',
+        type: 'completion',
+      });
+
+      await service.handleCallback(body);
+
+      expect(mockCreateMessage).toHaveBeenCalledWith('Execution stopped by user.');
+      expect(mockEditMessage).not.toHaveBeenCalled();
     });
 
     it('should skip when no lastAssistantContent on successful completion', async () => {
@@ -336,7 +376,7 @@ describe('BotCallbackService', () => {
 
       await service.handleCallback(body);
 
-      expect(mockDiscordEditMessage).not.toHaveBeenCalled();
+      expect(mockEditMessage).not.toHaveBeenCalled();
     });
 
     it('should edit progress message with final reply content', async () => {
@@ -353,19 +393,29 @@ describe('BotCallbackService', () => {
 
       await service.handleCallback(body);
 
-      expect(mockDiscordEditMessage).toHaveBeenCalledWith(
-        'channel-id',
+      expect(mockEditMessage).toHaveBeenCalledWith(
         'progress-msg-1',
         expect.stringContaining('The answer is 42.'),
       );
     });
 
     it('should not throw when editing completion message fails', async () => {
-      mockDiscordEditMessage.mockRejectedValueOnce(new Error('Edit failed'));
+      mockEditMessage.mockRejectedValueOnce(new Error('Edit failed'));
 
       const body = makeBody({
         lastAssistantContent: 'Some response',
         reason: 'completed',
+        type: 'completion',
+      });
+
+      await expect(service.handleCallback(body)).resolves.toBeUndefined();
+    });
+
+    it('should not throw when sending interrupted message fails', async () => {
+      mockCreateMessage.mockRejectedValueOnce(new Error('Send failed'));
+
+      const body = makeBody({
+        reason: 'interrupted',
         type: 'completion',
       });
 
@@ -376,8 +426,7 @@ describe('BotCallbackService', () => {
   // ==================== Message splitting ====================
 
   describe('message splitting', () => {
-    it('should split long Discord messages into multiple chunks', async () => {
-      // Default Discord limit is 1800 chars (from splitMessage default)
+    it('should split long messages into multiple chunks', async () => {
       const longContent = 'A'.repeat(3000);
 
       const body = makeBody({
@@ -389,12 +438,14 @@ describe('BotCallbackService', () => {
       await service.handleCallback(body);
 
       // First chunk via editMessage, additional chunks via createMessage
-      expect(mockDiscordEditMessage).toHaveBeenCalledTimes(1);
-      expect(mockDiscordCreateMessage).toHaveBeenCalled();
+      expect(mockEditMessage).toHaveBeenCalledTimes(1);
+      expect(mockCreateMessage).toHaveBeenCalled();
     });
 
-    it('should use Telegram char limit (4000) for Telegram platform', async () => {
-      // Content just over default 1800 but under 4000 should NOT split for Telegram
+    it('should use custom charLimit from provider settings', async () => {
+      setupCredentials(FAKE_CREDENTIALS, { settings: { charLimit: 4000 } });
+
+      // Content just over default 1800 but under 4000 should NOT split
       const mediumContent = 'B'.repeat(2500);
 
       const body = makeTelegramBody({
@@ -406,11 +457,12 @@ describe('BotCallbackService', () => {
       await service.handleCallback(body);
 
       // Should be single message (4000 limit), so only editMessage
-      expect(mockTelegramEditMessageText).toHaveBeenCalledTimes(1);
-      expect(mockTelegramSendMessage).not.toHaveBeenCalled();
+      expect(mockEditMessage).toHaveBeenCalledTimes(1);
+      expect(mockCreateMessage).not.toHaveBeenCalled();
     });
 
-    it('should split Telegram messages that exceed 4000 chars', async () => {
+    it('should split messages that exceed custom charLimit', async () => {
+      setupCredentials(FAKE_CREDENTIALS, { settings: { charLimit: 4000 } });
       const longContent = 'C'.repeat(6000);
 
       const body = makeTelegramBody({
@@ -421,15 +473,15 @@ describe('BotCallbackService', () => {
 
       await service.handleCallback(body);
 
-      expect(mockTelegramEditMessageText).toHaveBeenCalledTimes(1);
-      expect(mockTelegramSendMessage).toHaveBeenCalled();
+      expect(mockEditMessage).toHaveBeenCalledTimes(1);
+      expect(mockCreateMessage).toHaveBeenCalled();
     });
   });
 
   // ==================== Eyes reaction removal ====================
 
   describe('removeEyesReaction', () => {
-    it('should remove eyes reaction on completion for Discord', async () => {
+    it('should remove eyes reaction on completion', async () => {
       const body = makeBody({
         lastAssistantContent: 'Done.',
         reason: 'completed',
@@ -439,26 +491,7 @@ describe('BotCallbackService', () => {
 
       await service.handleCallback(body);
 
-      // Discord uses a separate DiscordRestApi instance for reaction removal
-      expect(mockDiscordRemoveOwnReaction).toHaveBeenCalled();
-    });
-
-    it('should use reactionChannelId when provided for Discord', async () => {
-      const body = makeBody({
-        lastAssistantContent: 'Done.',
-        reactionChannelId: 'parent-channel-id',
-        reason: 'completed',
-        type: 'completion',
-        userMessageId: 'user-msg-1',
-      });
-
-      await service.handleCallback(body);
-
-      expect(mockDiscordRemoveOwnReaction).toHaveBeenCalledWith(
-        'parent-channel-id',
-        'user-msg-1',
-        '👀',
-      );
+      expect(mockRemoveReaction).toHaveBeenCalledWith('user-msg-1', '👀');
     });
 
     it('should skip reaction removal when no userMessageId', async () => {
@@ -470,8 +503,7 @@ describe('BotCallbackService', () => {
 
       await service.handleCallback(body);
 
-      // removeReaction should not be called
-      expect(mockDiscordRemoveOwnReaction).not.toHaveBeenCalled();
+      expect(mockRemoveReaction).not.toHaveBeenCalled();
     });
 
     it('should remove reaction for Telegram using messenger', async () => {
@@ -484,12 +516,11 @@ describe('BotCallbackService', () => {
 
       await service.handleCallback(body);
 
-      // Telegram uses messenger.removeReaction which calls removeMessageReaction
-      expect(mockTelegramRemoveMessageReaction).toHaveBeenCalledWith('chat-456', 789);
+      expect(mockRemoveReaction).toHaveBeenCalledWith('telegram:chat-456:789', '👀');
     });
 
     it('should not throw when reaction removal fails', async () => {
-      mockDiscordRemoveOwnReaction.mockRejectedValueOnce(new Error('Reaction not found'));
+      mockRemoveReaction.mockRejectedValueOnce(new Error('Reaction not found'));
 
       const body = makeBody({
         lastAssistantContent: 'Done.',
@@ -521,7 +552,6 @@ describe('BotCallbackService', () => {
 
       await service.handleCallback(body);
 
-      // summarizeTopicTitle is fire-and-forget; wait for promises to settle
       await vi.waitFor(() => {
         expect(mockFindById).toHaveBeenCalledWith('topic-1');
       });
@@ -579,6 +609,24 @@ describe('BotCallbackService', () => {
       expect(mockFindById).not.toHaveBeenCalled();
     });
 
+    it('should skip summarization when reason is interrupted', async () => {
+      const body = makeBody({
+        lastAssistantContent: 'partial',
+        reason: 'interrupted',
+        topicId: 'topic-1',
+        type: 'completion',
+        userId: 'user-1',
+        userPrompt: 'test',
+      });
+
+      await service.handleCallback(body);
+
+      await new Promise((r) => setTimeout(r, 50));
+      expect(mockFindById).not.toHaveBeenCalled();
+      expect(mockGenerateTopicTitle).not.toHaveBeenCalled();
+      expect(mockTopicUpdate).not.toHaveBeenCalled();
+    });
+
     it('should skip summarization when topicId is missing', async () => {
       const body = makeBody({
         lastAssistantContent: 'Done.',
@@ -609,7 +657,7 @@ describe('BotCallbackService', () => {
       expect(mockFindById).not.toHaveBeenCalled();
     });
 
-    it('should update thread name on Discord after generating title', async () => {
+    it('should update thread name after generating title', async () => {
       mockFindById.mockResolvedValue({ title: null });
       mockGenerateTopicTitle.mockResolvedValue('New Title');
       mockTopicUpdate.mockResolvedValue(undefined);
@@ -627,7 +675,7 @@ describe('BotCallbackService', () => {
       await service.handleCallback(body);
 
       await vi.waitFor(() => {
-        expect(mockDiscordUpdateChannelName).toHaveBeenCalledWith('thread-id', 'New Title');
+        expect(mockUpdateThreadName).toHaveBeenCalledWith('New Title');
       });
     });
 
@@ -651,92 +699,7 @@ describe('BotCallbackService', () => {
       // Wait for async chain
       await new Promise((r) => setTimeout(r, 50));
       expect(mockTopicUpdate).not.toHaveBeenCalled();
-      expect(mockDiscordUpdateChannelName).not.toHaveBeenCalled();
-    });
-  });
-
-  // ==================== Discord channel ID extraction ====================
-
-  describe('Discord channel ID extraction', () => {
-    it('should extract channel ID from 3-part platformThreadId (no thread)', async () => {
-      const body = makeBody({
-        platformThreadId: 'discord:guild:channel-123',
-        shouldContinue: true,
-        stepType: 'call_llm',
-        type: 'step',
-      });
-
-      await service.handleCallback(body);
-
-      expect(mockDiscordEditMessage).toHaveBeenCalledWith(
-        'channel-123',
-        expect.any(String),
-        expect.any(String),
-      );
-    });
-
-    it('should extract thread ID (4th part) as channel when thread exists', async () => {
-      const body = makeBody({
-        platformThreadId: 'discord:guild:parent-channel:thread-456',
-        shouldContinue: true,
-        stepType: 'call_llm',
-        type: 'step',
-      });
-
-      await service.handleCallback(body);
-
-      expect(mockDiscordEditMessage).toHaveBeenCalledWith(
-        'thread-456',
-        expect.any(String),
-        expect.any(String),
-      );
-    });
-  });
-
-  // ==================== Telegram chat ID and message ID ====================
-
-  describe('Telegram message handling', () => {
-    it('should extract chat ID from platformThreadId', async () => {
-      const body = makeTelegramBody({
-        shouldContinue: true,
-        stepType: 'call_llm',
-        type: 'step',
-      });
-
-      await service.handleCallback(body);
-
-      expect(mockTelegramEditMessageText).toHaveBeenCalledWith(
-        'chat-456',
-        expect.any(Number),
-        expect.any(String),
-      );
-    });
-
-    it('should parse composite message ID for Telegram', async () => {
-      const body = makeTelegramBody({
-        lastAssistantContent: 'Done.',
-        progressMessageId: 'telegram:chat-456:99',
-        reason: 'completed',
-        type: 'completion',
-        userMessageId: 'telegram:chat-456:100',
-      });
-
-      await service.handleCallback(body);
-
-      // editMessageText should receive parsed numeric message ID
-      expect(mockTelegramEditMessageText).toHaveBeenCalledWith('chat-456', 99, expect.any(String));
-    });
-
-    it('should trigger typing for Telegram steps', async () => {
-      const body = makeTelegramBody({
-        shouldContinue: true,
-        stepType: 'call_tool',
-        type: 'step',
-      });
-
-      await service.handleCallback(body);
-
-      expect(mockTelegramSendChatAction).toHaveBeenCalledWith('chat-456', 'typing');
+      expect(mockUpdateThreadName).not.toHaveBeenCalled();
     });
   });
 
@@ -762,10 +725,10 @@ describe('BotCallbackService', () => {
       await service.handleCallback(body);
 
       // Completion: edit message
-      expect(mockDiscordEditMessage).toHaveBeenCalled();
+      expect(mockEditMessage).toHaveBeenCalled();
 
       // Reaction removal
-      expect(mockDiscordRemoveOwnReaction).toHaveBeenCalled();
+      expect(mockRemoveReaction).toHaveBeenCalled();
 
       // Topic summarization (async)
       await vi.waitFor(() => {
@@ -786,7 +749,7 @@ describe('BotCallbackService', () => {
 
       await service.handleCallback(body);
 
-      expect(mockDiscordRemoveOwnReaction).not.toHaveBeenCalled();
+      expect(mockRemoveReaction).not.toHaveBeenCalled();
       await new Promise((r) => setTimeout(r, 50));
       expect(mockFindById).not.toHaveBeenCalled();
     });

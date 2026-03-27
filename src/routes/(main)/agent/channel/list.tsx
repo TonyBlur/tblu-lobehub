@@ -6,17 +6,12 @@ import { Info } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { ChannelProvider } from './const';
+import type { SerializedPlatformDefinition } from '@/server/services/bot/platforms/types';
+
+import { BOT_RUNTIME_STATUSES, type BotRuntimeStatus } from '../../../../types/botRuntimeStatus';
+import { getPlatformIcon } from './const';
 
 const styles = createStaticStyles(({ css, cssVar }) => ({
-  root: css`
-    display: flex;
-    flex-direction: column;
-    flex-shrink: 0;
-
-    width: 260px;
-    border-inline-end: 1px solid ${cssVar.colorBorder};
-  `,
   item: css`
     cursor: pointer;
 
@@ -58,6 +53,14 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
     padding: 12px;
     padding-block-start: 16px;
   `,
+  root: css`
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+
+    width: 260px;
+    border-inline-end: 1px solid ${cssVar.colorBorder};
+  `,
   statusDot: css`
     width: 8px;
     height: 8px;
@@ -76,32 +79,86 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
 
 interface PlatformListProps {
   activeId: string;
-  connectedPlatforms: Set<string>;
   onSelect: (id: string) => void;
-  providers: ChannelProvider[];
+  platforms: SerializedPlatformDefinition[];
+  runtimeStatuses: Map<string, BotRuntimeStatus>;
 }
 
 const PlatformList = memo<PlatformListProps>(
-  ({ providers, activeId, connectedPlatforms, onSelect }) => {
+  ({ platforms, activeId, onSelect, runtimeStatuses }) => {
     const { t } = useTranslation('agent');
     const theme = useTheme();
+
+    const getStatusColor = (status?: BotRuntimeStatus) => {
+      switch (status) {
+        case BOT_RUNTIME_STATUSES.connected: {
+          return theme.colorSuccess;
+        }
+        case BOT_RUNTIME_STATUSES.failed: {
+          return theme.colorError;
+        }
+        case BOT_RUNTIME_STATUSES.queued:
+        case BOT_RUNTIME_STATUSES.starting: {
+          return theme.colorInfo;
+        }
+        case BOT_RUNTIME_STATUSES.disconnected: {
+          return theme.colorTextQuaternary;
+        }
+        default: {
+          return undefined;
+        }
+      }
+    };
+
+    const getStatusTitle = (status?: BotRuntimeStatus) => {
+      switch (status) {
+        case BOT_RUNTIME_STATUSES.connected: {
+          return t('channel.connectSuccess');
+        }
+        case BOT_RUNTIME_STATUSES.failed: {
+          return t('channel.connectFailed');
+        }
+        case BOT_RUNTIME_STATUSES.queued: {
+          return t('channel.connectQueued');
+        }
+        case BOT_RUNTIME_STATUSES.starting: {
+          return t('channel.connectStarting');
+        }
+        case BOT_RUNTIME_STATUSES.disconnected: {
+          return t('channel.runtimeDisconnected');
+        }
+        default: {
+          return undefined;
+        }
+      }
+    };
 
     return (
       <aside className={styles.root}>
         <div className={styles.list}>
           <div className={styles.title}>{t('channel.platforms')}</div>
-          {providers.map((provider) => {
-            const ProviderIcon = provider.icon;
-            const ColorIcon = 'Color' in ProviderIcon ? (ProviderIcon as any).Color : ProviderIcon;
+          {platforms.map((platform) => {
+            const PlatformIcon = getPlatformIcon(platform.name);
+            const ColorIcon =
+              PlatformIcon && 'Color' in PlatformIcon ? (PlatformIcon as any).Color : PlatformIcon;
+            const runtimeStatus = runtimeStatuses.get(platform.id);
+            const statusColor = getStatusColor(runtimeStatus);
+            const statusTitle = getStatusTitle(runtimeStatus);
             return (
               <button
-                className={cx(styles.item, activeId === provider.id && 'active')}
-                key={provider.id}
-                onClick={() => onSelect(provider.id)}
+                className={cx(styles.item, activeId === platform.id && 'active')}
+                key={platform.id}
+                onClick={() => onSelect(platform.id)}
               >
-                <ColorIcon size={20} />
-                <span style={{ flex: 1 }}>{provider.name}</span>
-                {connectedPlatforms.has(provider.id) && <div className={styles.statusDot} />}
+                {ColorIcon && <ColorIcon size={20} />}
+                <span style={{ flex: 1 }}>{platform.name}</span>
+                {runtimeStatus && (
+                  <div
+                    className={styles.statusDot}
+                    style={{ background: statusColor }}
+                    title={statusTitle}
+                  />
+                )}
               </button>
             );
           })}

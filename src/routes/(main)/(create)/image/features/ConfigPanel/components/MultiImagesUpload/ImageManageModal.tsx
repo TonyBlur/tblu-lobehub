@@ -335,14 +335,14 @@ const ImageManageModal: FC<ImageManageModalProps> = memo(
             style={{ objectFit: 'cover' }}
           />
 
-          {/* 新文件标识 */}
+          {/* New file indicator */}
           {isNewFile && (
             <div className={styles.newFileIndicator}>
               {t('MultiImagesUpload.modal.newFileIndicator')}
             </div>
           )}
 
-          {/* 删除按钮 */}
+          {/* Delete button */}
           <div
             className={cx(styles.thumbnailDelete, 'thumbnail-delete')}
             onClick={(e) => handleThumbnailDelete(index, e)}

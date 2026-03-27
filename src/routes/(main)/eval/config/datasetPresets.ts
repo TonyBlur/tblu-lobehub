@@ -44,7 +44,7 @@ export const DATASET_PRESETS: Record<string, DatasetPreset> = {
     icon: Globe,
     formatDescription: 'format: Topic (category/tags), Question (input), Answer (expected)',
     requiredFields: ['question', 'answer', 'problem_topic', 'canary'],
-    optionalFields: [],
+    optionalFields: ['case_id'],
     fieldInference: {
       input: ['question'],
       expected: ['answer'],
@@ -65,7 +65,7 @@ export const DATASET_PRESETS: Record<string, DatasetPreset> = {
     icon: Globe,
     formatDescription: 'format: Topic (category/tags), Question (input), Answer (expected)',
     requiredFields: ['Question', 'Answer'],
-    optionalFields: ['Topic', 'canary'],
+    optionalFields: ['Topic', 'canary', 'case_id'],
     fieldInference: {
       input: ['Question', 'question', 'prompt'],
       expected: ['Answer', 'answer'],
@@ -87,7 +87,7 @@ export const DATASET_PRESETS: Record<string, DatasetPreset> = {
     icon: Globe,
     formatDescription: 'format: instance_id, query (input), evaluation (expected), language',
     requiredFields: ['instance_id', 'query', 'evaluation', 'language'],
-    optionalFields: [],
+    optionalFields: ['case_id'],
     fieldInference: {
       input: ['query'],
       expected: ['evaluation'],
@@ -119,7 +119,7 @@ export const DATASET_PRESETS: Record<string, DatasetPreset> = {
       'raw_subject',
       'category',
     ],
-    optionalFields: ['canary'],
+    optionalFields: ['canary', 'case_id'],
     fieldInference: {
       input: ['question'],
       expected: ['answer'],
@@ -147,7 +147,7 @@ export const DATASET_PRESETS: Record<string, DatasetPreset> = {
       'category',
       'Verified_Classes',
     ],
-    optionalFields: ['canary'],
+    optionalFields: ['canary', 'case_id'],
     fieldInference: {
       input: ['question'],
       expected: ['answer'],
@@ -165,7 +165,7 @@ export const DATASET_PRESETS: Record<string, DatasetPreset> = {
     icon: Globe,
     formatDescription: 'problem, problem_category, answer, answer_type',
     requiredFields: ['problem', 'answer', 'problem_category', 'answer_type'],
-    optionalFields: [],
+    optionalFields: ['case_id'],
     fieldInference: {
       input: ['problem'],
       expected: ['answer'],
@@ -188,7 +188,7 @@ export const DATASET_PRESETS: Record<string, DatasetPreset> = {
     icon: Globe,
     formatDescription: 'format: question (input), answer (expected), topic (category)',
     requiredFields: ['question', 'answer', 'topic', 'canary'],
-    optionalFields: [],
+    optionalFields: ['case_id'],
     fieldInference: {
       input: ['question'],
       expected: ['answer'],

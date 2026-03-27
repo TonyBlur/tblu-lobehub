@@ -45,8 +45,8 @@ class AgentRuntimeService {
     const llmMessages = await contextEngineering({
       agentId: agentStoreState.activeAgentId,
       enableHistoryCount: agentChatConfigSelectors.enableHistoryCount(agentStoreState),
-      // include user messages
-      historyCount: agentChatConfigSelectors.historyCount(agentStoreState) + 2,
+      // historyCount is number of history messages; add 1 for current user message
+      historyCount: agentChatConfigSelectors.historyCount(agentStoreState) + 1,
       inputTemplate: chatConfig.inputTemplate,
       messages: data.messages as any,
       ...modelRuntimeConfig,

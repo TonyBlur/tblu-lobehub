@@ -1,230 +1,374 @@
 'use client';
 
-import { Alert, Flexbox, Form, type FormGroupItemType, type FormItemProps, Tag } from '@lobehub/ui';
-import { Button, Form as AntdForm, type FormInstance, Switch } from 'antd';
+import { Flexbox, Form, FormGroup, FormItem, Tag } from '@lobehub/ui';
+import { Button, type FormInstance, InputNumber, Popconfirm, Select, Switch } from 'antd';
 import { createStaticStyles } from 'antd-style';
-import { RefreshCw, Save, Trash2 } from 'lucide-react';
-import { memo } from 'react';
-import { Trans, useTranslation } from 'react-i18next';
+import { RotateCcw } from 'lucide-react';
+import { memo, useCallback, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
-import { useAppOrigin } from '@/hooks/useAppOrigin';
+import { FormInput, FormPassword } from '@/components/FormInput';
+import type {
+  FieldSchema,
+  SerializedPlatformDefinition,
+} from '@/server/services/bot/platforms/types';
 
-import { type ChannelProvider } from '../const';
-import type { ChannelFormValues, TestResult } from './index';
-import { getDiscordFormItems } from './platforms/discord';
-import { getFeishuFormItems } from './platforms/feishu';
-import { getLarkFormItems } from './platforms/lark';
-import { getQQFormItems } from './platforms/qq';
-import { getTelegramFormItems } from './platforms/telegram';
+import type { ChannelFormValues } from './index';
+import QrCodeAuth from './QrCodeAuth';
 
 const prefixCls = 'ant';
 
-const styles = createStaticStyles(({ css, cssVar }) => ({
-  actionBar: css`
+const styles = createStaticStyles(({ css }) => ({
+  connectedInfoHeader: css`
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding-block-start: 16px;
+    margin-block-end: 16px;
   `,
   form: css`
-    .${prefixCls}-form-item-control:has(.${prefixCls}-input, .${prefixCls}-select) {
+    .${prefixCls}-form-item-control:has(.${prefixCls}-input, .${prefixCls}-select, .${prefixCls}-input-number) {
       flex: none;
     }
   `,
-  bottom: css`
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-
-    width: 100%;
-    max-width: 1024px;
-    margin-block: 0;
-    margin-inline: auto;
-    padding-block: 0 24px;
-    padding-inline: 24px;
-  `,
-  webhookBox: css`
-    overflow: hidden;
-    flex: 1;
-
-    height: ${cssVar.controlHeight};
-    padding-inline: 12px;
-    border: 1px solid ${cssVar.colorBorder};
-    border-radius: ${cssVar.borderRadius};
-
-    font-family: monospace;
-    font-size: 13px;
-    line-height: ${cssVar.controlHeight};
-    color: ${cssVar.colorTextSecondary};
-    text-overflow: ellipsis;
-    white-space: nowrap;
-
-    background: ${cssVar.colorFillQuaternary};
-  `,
 }));
 
-const platformFormItemsMap: Record<
-  string,
-  (t: any, hasConfig: boolean, provider: ChannelProvider) => FormItemProps[]
-> = {
-  discord: getDiscordFormItems,
-  feishu: getFeishuFormItems,
-  lark: getLarkFormItems,
-  qq: getQQFormItems,
-  telegram: getTelegramFormItems,
-};
+// --------------- Validation rules builder ---------------
+
+function buildRules(field: FieldSchema, t: (key: string) => string) {
+  const rules: any[] = [];
+
+  if (field.required) {
+    rules.push({ message: t(field.label), required: true });
+  }
+
+  if (field.type === 'number' || field.type === 'integer') {
+    if (typeof field.minimum === 'number') {
+      rules.push({
+        message: `${t(field.label)} ≥ ${field.minimum}`,
+        min: field.minimum,
+        type: 'number' as const,
+      });
+    }
+    if (typeof field.maximum === 'number') {
+      rules.push({
+        message: `${t(field.label)} ≤ ${field.maximum}`,
+        max: field.maximum,
+        type: 'number' as const,
+      });
+    }
+  }
+
+  return rules.length > 0 ? rules : undefined;
+}
+
+// --------------- Single field component (memo'd) ---------------
+
+interface SchemaFieldProps {
+  divider?: boolean;
+  field: FieldSchema;
+  parentKey: string;
+}
+
+const SchemaField = memo<SchemaFieldProps>(({ field, parentKey, divider }) => {
+  const { t: _t } = useTranslation('agent');
+  const t = _t as (key: string) => string;
+
+  const label = field.devOnly ? (
+    <Flexbox horizontal align="center" gap={8}>
+      {t(field.label)}
+      <Tag color="gold">Dev Only</Tag>
+    </Flexbox>
+  ) : (
+    t(field.label)
+  );
+
+  let children: React.ReactNode;
+  switch (field.type) {
+    case 'password': {
+      children = <FormPassword autoComplete="new-password" placeholder={field.placeholder} />;
+      break;
+    }
+    case 'boolean': {
+      children = <Switch />;
+      break;
+    }
+    case 'number':
+    case 'integer': {
+      children = (
+        <InputNumber
+          max={field.maximum}
+          min={field.minimum}
+          placeholder={field.placeholder}
+          style={{ width: '100%' }}
+        />
+      );
+      break;
+    }
+    case 'string': {
+      if (field.enum) {
+        children = (
+          <Select
+            placeholder={field.placeholder}
+            options={field.enum.map((value, i) => ({
+              label: field.enumLabels?.[i] ? t(field.enumLabels[i]) : value,
+              value,
+            }))}
+          />
+        );
+      } else {
+        children = <FormInput placeholder={field.placeholder || t(field.label)} />;
+      }
+      break;
+    }
+    default: {
+      children = <FormInput placeholder={field.placeholder || t(field.label)} />;
+    }
+  }
+
+  return (
+    <FormItem
+      desc={field.description ? t(field.description) : undefined}
+      divider={divider}
+      initialValue={field.default}
+      label={label}
+      minWidth={'max(50%, 400px)'}
+      name={[parentKey, field.key]}
+      rules={buildRules(field, t)}
+      tag={field.key}
+      valuePropName={field.type === 'boolean' ? 'checked' : undefined}
+      variant="borderless"
+    >
+      {children}
+    </FormItem>
+  );
+});
+
+// --------------- ApplicationId field (standalone, not nested) ---------------
+
+const ApplicationIdField = memo<{ field: FieldSchema }>(({ field }) => {
+  const { t: _t } = useTranslation('agent');
+  const t = _t as (key: string) => string;
+
+  return (
+    <FormItem
+      desc={field.description ? t(field.description) : undefined}
+      initialValue={field.default}
+      label={t(field.label)}
+      minWidth={'max(50%, 400px)'}
+      name="applicationId"
+      rules={field.required ? [{ message: t(field.label), required: true }] : undefined}
+      tag="applicationId"
+      variant="borderless"
+    >
+      <FormInput placeholder={field.placeholder || t(field.label)} />
+    </FormItem>
+  );
+});
+
+const ReadOnlyField = memo<{
+  description?: string;
+  divider?: boolean;
+  label: string;
+  password?: boolean;
+  tag: string;
+  value?: string;
+}>(({ description, divider, label, password, tag, value }) => {
+  const InputComponent = password ? FormPassword : FormInput;
+
+  return (
+    <FormItem
+      desc={description}
+      divider={divider}
+      label={label}
+      minWidth={'max(50%, 400px)'}
+      tag={tag}
+      variant="borderless"
+    >
+      <InputComponent readOnly value={value || ''} />
+    </FormItem>
+  );
+});
+
+// --------------- Helper: flatten fields from schema ---------------
+
+function getFields(schema: FieldSchema[], sectionKey: string): FieldSchema[] {
+  const section = schema.find((f) => f.key === sectionKey);
+  if (!section?.properties) return [];
+
+  return section.properties
+    .filter((f) => !f.devOnly || process.env.NODE_ENV === 'development')
+    .flatMap((f) => {
+      if (f.type === 'object' && f.properties) {
+        return f.properties.filter(
+          (child) => !child.devOnly || process.env.NODE_ENV === 'development',
+        );
+      }
+      return f;
+    });
+}
+
+// --------------- Settings group title (memo'd) ---------------
+
+const SettingsTitle = memo<{ schema: FieldSchema[] }>(({ schema }) => {
+  const { t: _t } = useTranslation('agent');
+  const t = _t as (key: string) => string;
+  const settingsSchema = schema.find((f) => f.key === 'settings');
+  return <>{settingsSchema ? t(settingsSchema.label) : null}</>;
+});
+
+// --------------- Body component ---------------
 
 interface BodyProps {
-  currentConfig?: { enabled: boolean };
+  currentConfig?: {
+    applicationId: string;
+    credentials: Record<string, string>;
+  };
   form: FormInstance<ChannelFormValues>;
-  hasConfig: boolean;
-  onCopied: () => void;
-  onDelete: () => void;
-  onSave: () => void;
-  onTestConnection: () => void;
-  onToggleEnable: (enabled: boolean) => void;
-  provider: ChannelProvider;
-  saveResult?: TestResult;
-  saving: boolean;
-  testing: boolean;
-  testResult?: TestResult;
+  hasConfig?: boolean;
+  onQrAuthenticated?: (credentials: { botId: string; botToken: string; userId: string }) => void;
+  platformDef: SerializedPlatformDefinition;
 }
 
 const Body = memo<BodyProps>(
-  ({
-    provider,
-    form,
-    hasConfig,
-    currentConfig,
-    saveResult,
-    saving,
-    testing,
-    testResult,
-    onSave,
-    onDelete,
-    onTestConnection,
-    onToggleEnable,
-    onCopied,
-  }) => {
-    const { t } = useTranslation('agent');
-    const origin = useAppOrigin();
-    const applicationId = AntdForm.useWatch('applicationId', form);
+  ({ platformDef, form, hasConfig, currentConfig, onQrAuthenticated }) => {
+    const { t: _t } = useTranslation('agent');
+    const t = _t as (key: string) => string;
 
-    const webhookUrl = applicationId
-      ? `${origin}/api/agent/webhooks/${provider.id}/${applicationId}`
-      : `${origin}/api/agent/webhooks/${provider.id}`;
-
-    const getItems = platformFormItemsMap[provider.id];
-    const configItems = getItems ? getItems(t, hasConfig, provider) : [];
-
-    const ColorIcon = 'Color' in provider.icon ? (provider.icon as any).Color : provider.icon;
-
-    const headerTitle = (
-      <Flexbox horizontal align="center" gap={8}>
-        <ColorIcon size={32} />
-        {provider.name}
-      </Flexbox>
+    const applicationIdField = useMemo(
+      () => platformDef.schema.find((f) => f.key === 'applicationId'),
+      [platformDef.schema],
     );
 
-    const headerExtra = currentConfig ? (
-      <Switch checked={currentConfig.enabled} onChange={onToggleEnable} />
-    ) : undefined;
+    const credentialFields = useMemo(
+      () => getFields(platformDef.schema, 'credentials'),
+      [platformDef.schema],
+    );
 
-    const group: FormGroupItemType = {
-      children: configItems,
-      defaultActive: true,
-      extra: headerExtra,
-      title: headerTitle,
-    };
+    const settingsFields = useMemo(
+      () => getFields(platformDef.schema, 'settings'),
+      [platformDef.schema],
+    );
+
+    const [settingsActive, setSettingsActive] = useState(false);
+    const shouldShowWechatApplicationId =
+      !!currentConfig?.applicationId &&
+      currentConfig.applicationId !== currentConfig.credentials.botId;
+
+    const handleResetSettings = useCallback(() => {
+      const defaults: Record<string, any> = {};
+      for (const field of settingsFields) {
+        if (field.default !== undefined) {
+          defaults[field.key] = field.default;
+        }
+      }
+      form.setFieldsValue({ settings: defaults });
+    }, [form, settingsFields]);
 
     return (
-      <>
-        <Form
-          className={styles.form}
-          form={form}
-          itemMinWidth={'max(50%, 400px)'}
-          items={[group]}
-          requiredMark={false}
-          style={{ maxWidth: 1024, padding: 24, width: '100%' }}
-          variant={'borderless'}
-        />
-
-        <div className={styles.bottom}>
-          <div className={styles.actionBar}>
-            {hasConfig ? (
-              <Button danger icon={<Trash2 size={16} />} type="primary" onClick={onDelete}>
-                {t('channel.removeChannel')}
-              </Button>
-            ) : (
-              <div />
-            )}
-            <Flexbox horizontal gap={12}>
-              {hasConfig && (
-                <Button icon={<RefreshCw size={16} />} loading={testing} onClick={onTestConnection}>
-                  {t('channel.testConnection')}
-                </Button>
+      <Form
+        className={styles.form}
+        form={form}
+        gap={0}
+        itemMinWidth={'max(50%, 400px)'}
+        requiredMark={false}
+        style={{ maxWidth: 1024, padding: '16px 0', width: '100%' }}
+        variant={'borderless'}
+      >
+        {platformDef.authFlow === 'qrcode' && hasConfig && currentConfig && (
+          <>
+            <div className={styles.connectedInfoHeader}>
+              <Flexbox gap={4}>
+                <div style={{ fontSize: 16, fontWeight: 600 }}>
+                  {t('channel.wechatConnectedInfo')}
+                </div>
+                <div style={{ color: 'var(--ant-color-text-secondary)', fontSize: 13 }}>
+                  {t('channel.wechatManagedCredentials')}
+                </div>
+              </Flexbox>
+              {onQrAuthenticated && (
+                <QrCodeAuth
+                  buttonLabel={t('channel.wechatRebind')}
+                  buttonType="default"
+                  showTips={false}
+                  onAuthenticated={onQrAuthenticated}
+                />
               )}
-              <Button icon={<Save size={16} />} loading={saving} type="primary" onClick={onSave}>
-                {t('channel.save')}
-              </Button>
-            </Flexbox>
-          </div>
-
-          {saveResult && (
-            <Alert
-              closable
-              showIcon
-              description={saveResult.type === 'error' ? saveResult.errorDetail : undefined}
-              title={saveResult.type === 'success' ? t('channel.saved') : t('channel.saveFailed')}
-              type={saveResult.type}
-            />
-          )}
-
-          {testResult && (
-            <Alert
-              closable
-              showIcon
-              description={testResult.type === 'error' ? testResult.errorDetail : undefined}
-              type={testResult.type}
-              title={
-                testResult.type === 'success' ? t('channel.testSuccess') : t('channel.testFailed')
-              }
-            />
-          )}
-
-          {hasConfig && provider.webhookMode !== 'auto' && (
-            <Flexbox gap={8}>
-              <Flexbox horizontal align="center" gap={8}>
-                <span style={{ fontWeight: 600 }}>{t('channel.endpointUrl')}</span>
-                {provider.fieldTags.webhook && <Tag>{provider.fieldTags.webhook}</Tag>}
-              </Flexbox>
-              <Flexbox horizontal gap={8}>
-                <div className={styles.webhookBox}>{webhookUrl}</div>
-                <Button
-                  onClick={() => {
-                    navigator.clipboard.writeText(webhookUrl);
-                    onCopied();
-                  }}
-                >
-                  {t('channel.copy')}
-                </Button>
-              </Flexbox>
-              <Alert
-                showIcon
-                type="info"
-                message={
-                  <Trans
-                    components={{ bold: <strong /> }}
-                    i18nKey="channel.endpointUrlHint"
-                    ns="agent"
-                    values={{ fieldName: provider.fieldTags.webhook ?? '', name: provider.name }}
-                  />
-                }
+            </div>
+            {shouldShowWechatApplicationId && (
+              <ReadOnlyField
+                description={t('channel.applicationIdHint')}
+                label={t('channel.applicationId')}
+                tag="applicationId"
+                value={currentConfig.applicationId}
               />
-            </Flexbox>
-          )}
-        </div>
-      </>
+            )}
+            <ReadOnlyField
+              description={t('channel.wechatBotIdHint')}
+              divider={shouldShowWechatApplicationId}
+              label={t('channel.wechatBotId')}
+              tag="botId"
+              value={currentConfig.credentials.botId}
+            />
+            <ReadOnlyField
+              divider
+              password
+              description={t('channel.botTokenEncryptedHint')}
+              label={t('channel.botToken')}
+              tag="botToken"
+              value={currentConfig.credentials.botToken}
+            />
+            <ReadOnlyField
+              divider
+              description={t('channel.wechatUserIdHint')}
+              label={t('channel.wechatUserId')}
+              tag="userId"
+              value={currentConfig.credentials.userId}
+            />
+          </>
+        )}
+        {platformDef.authFlow === 'qrcode' && onQrAuthenticated && !hasConfig && (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '16px 0' }}>
+            <QrCodeAuth onAuthenticated={onQrAuthenticated} />
+          </div>
+        )}
+        {applicationIdField && <ApplicationIdField field={applicationIdField} />}
+        {!platformDef.authFlow &&
+          credentialFields.map((field, i) => (
+            <SchemaField
+              divider={applicationIdField ? true : i !== 0}
+              field={field}
+              key={field.key}
+              parentKey="credentials"
+            />
+          ))}
+        {settingsFields.length > 0 && (
+          <FormGroup
+            collapsible
+            defaultActive={false}
+            keyValue={`settings-${platformDef.id}`}
+            style={{ marginBlockStart: 16 }}
+            title={<SettingsTitle schema={platformDef.schema} />}
+            variant="borderless"
+            extra={
+              settingsActive ? (
+                <Popconfirm
+                  title={t('channel.settingsResetConfirm')}
+                  onConfirm={handleResetSettings}
+                >
+                  <Button icon={<RotateCcw size={14} />} size="small" type="default">
+                    {t('channel.settingsResetDefault')}
+                  </Button>
+                </Popconfirm>
+              ) : undefined
+            }
+            onCollapse={setSettingsActive}
+          >
+            {settingsFields.map((field, i) => (
+              <SchemaField divider={i !== 0} field={field} key={field.key} parentKey="settings" />
+            ))}
+          </FormGroup>
+        )}
+      </Form>
     );
   },
 );

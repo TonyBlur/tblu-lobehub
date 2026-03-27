@@ -6,8 +6,9 @@ import {
   type Usage,
 } from '@lobechat/agent-runtime';
 import { AgentRuntime, computeStepContext, GeneralChatAgent } from '@lobechat/agent-runtime';
+import { createPathScopeAudit } from '@lobechat/builtin-tool-local-system';
 import { PageAgentIdentifier } from '@lobechat/builtin-tool-page-agent';
-import { dynamicInterventionAudits } from '@lobechat/builtin-tools/dynamicInterventionAudits';
+import { manualModeExcludeToolIds } from '@lobechat/builtin-tools';
 import { isDesktop } from '@lobechat/const';
 import { type ToolsEngine } from '@lobechat/context-engine';
 import {
@@ -21,6 +22,7 @@ import { t } from 'i18next';
 import { createAgentToolsEngine } from '@/helpers/toolEngineering';
 import { type ResolvedAgentConfig } from '@/services/chat/mecha';
 import { resolveAgentConfig } from '@/services/chat/mecha';
+import { localFileService } from '@/services/electron/localFileService';
 import { messageService } from '@/services/message';
 import { getAgentStoreState } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
@@ -42,6 +44,17 @@ import {
 } from '../../message/selectors/dbMessage';
 
 const log = debug('lobe-store:streaming-executor');
+
+const dynamicInterventionAudits = {
+  pathScopeAudit: createPathScopeAudit({
+    areAllPathsSafe: async ({ paths, resolveAgainstScope }) => {
+      if (!isDesktop) return false;
+
+      const result = await localFileService.auditSafePaths({ paths, resolveAgainstScope });
+      return result.allSafe;
+    },
+  }),
+};
 
 const hasReferTopicNode = (editorData: Record<string, any> | null | undefined): boolean => {
   if (!editorData) return false;
@@ -171,14 +184,15 @@ export class StreamingExecutorActionImpl {
       { model: agentConfigData.model, provider: agentConfigData.provider! },
       effectivePluginIds,
     );
-    // When skillActivateMode is 'manual', skipDefaultTools gives user precise control
+    // When skillActivateMode is 'manual', exclude only discovery tools (lobe-activator, lobe-skill-store)
+    // so that externally enabled tools (sandbox, web browsing, etc.) remain available
     const isManualMode = agentConfig.chatConfig?.skillActivateMode === 'manual';
 
-
     const toolsDetailed = toolsEngine.generateToolsDetailed({
+      excludeDefaultToolIds: isManualMode ? manualModeExcludeToolIds : undefined,
       model: agentConfigData.model,
       provider: agentConfigData.provider!,
-      skipDefaultTools: disableTools || isManualMode,
+      skipDefaultTools: disableTools,
       toolIds: mergedToolIds,
     });
 
@@ -285,19 +299,29 @@ export class StreamingExecutorActionImpl {
           }
         : undefined;
 
+    const defaultPayload = {
+      model: agentConfigData.model,
+      parentMessageId,
+      provider: agentConfigData.provider,
+    };
+    const existingPayload =
+      initialContext?.payload && typeof initialContext.payload === 'object'
+        ? (initialContext.payload as Record<string, unknown>)
+        : undefined;
+
     // Create initial context or use provided context
     const context: AgentRuntimeContext = initialContext
       ? {
           ...initialContext,
+          payload: {
+            ...defaultPayload,
+            ...existingPayload,
+          },
           initialContext: mergedRuntimeInitialContext,
         }
       : {
           phase: 'init',
-          payload: {
-            model: agentConfigData.model,
-            provider: agentConfigData.provider,
-            parentMessageId,
-          },
+          payload: defaultPayload,
           session: {
             sessionId: agentId,
             messageCount: messages.length,
@@ -488,7 +512,7 @@ export class StreamingExecutorActionImpl {
       const currentDBMessages = this.#get().dbMessagesMap[messageKey] || [];
       // Use selectTodosFromMessages selector (shared with UI display)
       const todos = selectTodosFromMessages(currentDBMessages);
-      // Accumulate activated tool IDs from lobe-tools messages
+      // Accumulate activated tool IDs from lobe-activator messages
       const activatedToolIds = selectActivatedToolIdsFromMessages(currentDBMessages);
       // Accumulate activated skills from activateSkill messages
       const activatedSkills = selectActivatedSkillsFromMessages(currentDBMessages);
