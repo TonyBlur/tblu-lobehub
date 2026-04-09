@@ -1,5 +1,5 @@
 import { type AgentRuntimeContext, type AgentState } from '@lobechat/agent-runtime';
-import type { LobeToolManifest, OperationSkillSet } from '@lobechat/context-engine';
+import type { LobeToolManifest, OperationSkillSet, ToolSource } from '@lobechat/context-engine';
 import { type UserInterventionConfig } from '@lobechat/types';
 
 import { type ServerUserMemoryConfig } from '@/server/modules/Mecha/ContextEngineering/types';
@@ -11,7 +11,7 @@ import { type AgentHook } from './hooks/types';
 export interface OperationToolSet {
   enabledToolIds?: string[];
   manifestMap: Record<string, LobeToolManifest>;
-  sourceMap?: Record<string, 'builtin' | 'plugin' | 'mcp' | 'klavis' | 'lobehubSkill'>;
+  sourceMap?: Record<string, ToolSource>;
   tools?: any[];
 }
 
@@ -111,6 +111,7 @@ export type StepCompletionReason =
 export interface AgentExecutionParams {
   approvedToolCall?: any;
   context?: AgentRuntimeContext;
+  externalRetryCount?: number;
   humanInput?: any;
   operationId: string;
   rejectionReason?: string;
@@ -143,15 +144,6 @@ export interface OperationCreationParams {
   autoStart?: boolean;
   /** Bot platform context for injecting platform capabilities (e.g. markdown support) */
   botPlatformContext?: any;
-  /**
-   * Completion webhook configuration
-   * When set, an HTTP POST will be fired when the operation completes (success or error).
-   * The webhook is persisted in Redis state so it survives across QStash step boundaries.
-   */
-  completionWebhook?: {
-    body?: Record<string, unknown>;
-    url: string;
-  };
   /** Device system info for placeholder variable replacement in Local System systemRole */
   deviceSystemInfo?: Record<string, string>;
   /** Discord context for injecting channel/guild info into agent system message */
@@ -164,27 +156,17 @@ export interface OperationCreationParams {
   hooks?: AgentHook[];
   initialContext: AgentRuntimeContext;
   initialMessages?: any[];
+  /** Initial step count offset for resumed operations (accumulated from previous runs) */
+  initialStepCount?: number;
   maxSteps?: number;
   modelRuntimeConfig?: any;
   operationId: string;
   /** Operation-level skill set for SkillResolver */
   operationSkillSet?: OperationSkillSet;
+  queueRetries?: number;
+  queueRetryDelay?: string;
   /** Abort startup before the first step is scheduled */
   signal?: AbortSignal;
-  /**
-   * Step lifecycle callbacks
-   * Used to inject custom logic at different stages of step execution
-   */
-  stepCallbacks?: StepLifecycleCallbacks;
-  /**
-   * Step webhook configuration
-   * When set, an HTTP POST will be fired after each step completes.
-   * Persisted in Redis state so it survives across QStash step boundaries.
-   */
-  stepWebhook?: {
-    body?: Record<string, unknown>;
-    url: string;
-  };
   /**
    * Whether the LLM call should use streaming.
    * Defaults to true. Set to false for non-streaming scenarios (e.g., bot integrations).
@@ -202,12 +184,6 @@ export interface OperationCreationParams {
   userMemory?: ServerUserMemoryConfig;
   /** User's timezone from settings (e.g. 'Asia/Shanghai') */
   userTimezone?: string;
-  /**
-   * Webhook delivery method.
-   * - 'fetch': plain HTTP POST (default)
-   * - 'qstash': deliver via QStash publishJSON for guaranteed delivery
-   */
-  webhookDelivery?: 'fetch' | 'qstash';
 }
 
 export interface OperationCreationResult {

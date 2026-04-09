@@ -1,5 +1,13 @@
-import { DEFAULT_DEBOUNCE_MS, MAX_DEBOUNCE_MS } from '../const';
+import {
+  DEFAULT_BOT_DEBOUNCE_MS,
+  DEFAULT_BOT_HISTORY_LIMIT,
+  MAX_BOT_DEBOUNCE_MS,
+  MIN_BOT_HISTORY_LIMIT,
+} from '@lobechat/const';
+
+import { displayToolCallsField, serverIdField, userIdField } from '../const';
 import type { FieldSchema } from '../types';
+import { MAX_DISCORD_HISTORY_LIMIT } from './const';
 
 export const schema: FieldSchema[] = [
   {
@@ -44,13 +52,23 @@ export const schema: FieldSchema[] = [
         type: 'number',
       },
       {
+        key: 'concurrency',
+        default: 'queue',
+        description: 'channel.concurrencyHint',
+        enum: ['queue', 'debounce'],
+        enumLabels: ['channel.concurrencyQueue', 'channel.concurrencyDebounce'],
+        label: 'channel.concurrency',
+        type: 'string',
+      },
+      {
         key: 'debounceMs',
-        default: DEFAULT_DEBOUNCE_MS,
+        default: DEFAULT_BOT_DEBOUNCE_MS,
         description: 'channel.debounceMsHint',
         label: 'channel.debounceMs',
-        maximum: MAX_DEBOUNCE_MS,
-        minimum: 0,
+        maximum: MAX_BOT_DEBOUNCE_MS,
+        minimum: 100,
         type: 'number',
+        visibleWhen: { field: 'concurrency', value: 'debounce' },
       },
       {
         key: 'showUsageStats',
@@ -59,6 +77,18 @@ export const schema: FieldSchema[] = [
         label: 'channel.showUsageStats',
         type: 'boolean',
       },
+      displayToolCallsField,
+      {
+        key: 'historyLimit',
+        default: DEFAULT_BOT_HISTORY_LIMIT,
+        description: 'channel.historyLimitHint',
+        label: 'channel.historyLimit',
+        maximum: MAX_DISCORD_HISTORY_LIMIT,
+        minimum: MIN_BOT_HISTORY_LIMIT,
+        type: 'number',
+      },
+      serverIdField,
+      userIdField,
       // TODO: DM schema - not implemented yet
       // {
       //   key: 'dm',

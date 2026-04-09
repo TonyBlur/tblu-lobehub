@@ -173,7 +173,7 @@ function buildDaemonArgs(options: ConnectOptions): string[] {
 }
 
 async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
-  const auth = await resolveToken(options);
+  let auth = await resolveToken(options);
   const settings = loadSettings();
   const gatewayUrl = normalizeUrl(options.gateway) || settings?.gatewayUrl;
 
@@ -221,16 +221,15 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
   info(`  Mode      : ${isDaemonChild ? 'daemon' : 'foreground'}`);
   info('───────────────────');
 
-  // Update status file for daemon mode
+  // Update local connection status so other CLI commands can resolve the current device
   const updateStatus = (connectionStatus: string) => {
-    if (isDaemonChild) {
-      writeStatus({
-        connectionStatus,
-        gatewayUrl: resolvedGatewayUrl,
-        pid: process.pid,
-        startedAt: startedAt.toISOString(),
-      });
-    }
+    writeStatus({
+      connectionStatus,
+      deviceId: client.currentDeviceId,
+      gatewayUrl: resolvedGatewayUrl,
+      pid: process.pid,
+      startedAt: startedAt.toISOString(),
+    });
   };
 
   const startedAt = new Date();
@@ -295,19 +294,30 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
     process.exit(1);
   });
 
-  // Handle auth expired
+  // Handle auth expired — refresh token and reconnect automatically
   client.on('auth_expired', async () => {
     if (auth.tokenType === 'apiKey') {
+      // API keys don't expire; ignore stale auth_expired signals
       return;
     }
 
-    error('Authentication expired. Attempting to refresh...');
-    const refreshed = await resolveToken({});
-    if (refreshed) {
-      info('Token refreshed. Please reconnect.');
-    } else {
-      error("Could not refresh token. Run 'lh login' to re-authenticate.");
+    info('Authentication expired. Attempting to refresh token...');
+
+    try {
+      const refreshed = await resolveToken({});
+      if (refreshed) {
+        info('Token refreshed successfully. Reconnecting...');
+        client.updateToken(refreshed.token);
+        // Update cached auth so subsequent refreshes use the latest token
+        auth = refreshed;
+        await client.reconnect();
+        return;
+      }
+    } catch {
+      // refresh failed — fall through
     }
+
+    error("Could not refresh token. Run 'lh login' to re-authenticate.");
     cleanup();
     process.exit(1);
   });
@@ -322,8 +332,8 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
     info('Shutting down...');
     cleanupAllProcesses();
     client.disconnect();
+    removeStatus();
     if (isDaemonChild) {
-      removeStatus();
       removePid();
     }
   };

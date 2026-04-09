@@ -12,6 +12,12 @@ export default {
   'channel.connectionConfig': 'Connection Configuration',
   'channel.copied': 'Copied to clipboard',
   'channel.copy': 'Copy',
+  'channel.deleteAllChannels': 'Remove All Channels',
+  'channel.deleteAllConfirm': 'Are you sure you want to remove all channels?',
+  'channel.deleteAllConfirmDesc':
+    'This action will permanently remove all message channels and their configurations for this agent. This cannot be undone.',
+  'channel.deleteAllSuccess': 'All channels removed',
+  'channel.deleteAllFailed': 'Failed to remove all channels',
   'channel.deleteConfirm': 'Are you sure you want to remove this channel?',
   'channel.deleteConfirmDesc':
     'This action will permanently remove this message channel and its configuration. This cannot be undone.',
@@ -22,6 +28,11 @@ export default {
   'channel.discord.description':
     'Connect this assistant to Discord server for channel chat and direct messages.',
   'channel.documentation': 'Documentation',
+  'channel.exportConfig': 'Export Configuration',
+  'channel.importConfig': 'Import Configuration',
+  'channel.importSuccess': 'Configuration imported successfully',
+  'channel.importFailed': 'Failed to import configuration',
+  'channel.importInvalidFormat': 'Invalid configuration file format',
   'channel.enabled': 'Enabled',
   'channel.encryptKey': 'Encrypt Key',
   'channel.encryptKeyHint': 'Optional. Used to decrypt encrypted event payloads.',
@@ -89,8 +100,13 @@ export default {
     'The App Secret of your bot application. It will be encrypted and stored securely.',
   'channel.charLimit': 'Character Limit',
   'channel.charLimitHint': 'Maximum number of characters per message',
+  'channel.concurrency': 'Concurrency Mode',
+  'channel.concurrencyDebounce': 'Debounce',
+  'channel.concurrencyHint':
+    'Queue processes messages one at a time; Debounce waits for a burst of messages to finish before processing',
+  'channel.concurrencyQueue': 'Queue',
   'channel.credentials': 'Credentials',
-  'channel.debounceMs': 'Message Merge Window (ms)',
+  'channel.debounceMs': 'Debounce Window (ms)',
   'channel.debounceMsHint':
     'How long to wait for additional messages before dispatching to the agent (ms)',
   'channel.dm': 'Direct Messages',
@@ -108,5 +124,16 @@ export default {
   'channel.signingSecretHint': 'Used to verify webhook requests.',
   'channel.showUsageStats': 'Show Usage Stats',
   'channel.showUsageStatsHint': 'Show token usage, cost, and duration stats in bot replies',
+  'channel.displayToolCalls': 'Display Tool Calls',
+  'channel.displayToolCallsHint':
+    'Show tool call details during AI responses. When disabled, only the final response is displayed for a cleaner experience.',
+  'channel.historyLimit': 'History Message Limit',
+  'channel.historyLimitHint': 'Default number of messages to fetch when reading channel history',
+  'channel.serverId': 'Default Server / Guild ID',
+  'channel.serverIdHint':
+    'Your default server or guild ID on this platform. The AI uses it to list channels without asking.',
+  'channel.userId': 'Your Platform User ID',
+  'channel.userIdHint':
+    'Your user ID on this platform. The AI can use it to send you direct messages.',
   'channel.runtimeDisconnected': 'Bot disconnected',
 } as const;

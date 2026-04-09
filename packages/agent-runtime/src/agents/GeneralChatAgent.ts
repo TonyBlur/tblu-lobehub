@@ -183,6 +183,9 @@ export class GeneralChatAgent implements Agent {
         continue;
       }
 
+      // Phase 2.5: Get manifest for later use
+      const manifest = state.toolManifestMap?.[identifier];
+
       // Phase 3: Per-tool dynamic resolver
       const config = this.getToolInterventionConfig(toolCalling, state);
       const isDynamicConfig = this.isDynamicInterventionConfig(config);
@@ -215,6 +218,16 @@ export class GeneralChatAgent implements Agent {
       // Phase 5: User config is 'auto-run', all tools execute directly
       if (approvalMode === 'auto-run') {
         toolsToExecute.push(toolCalling);
+        continue;
+      }
+
+      // Phase 5.5: Unknown tool guard — require intervention for tools not in manifest
+      // Only applies to manual/allow-list modes; auto-run users accept the risk
+      if (!manifest) {
+        console.warn(
+          `[InterventionGuard] Unknown tool "${identifier}/${apiName}" not found in toolManifestMap (keys: ${Object.keys(state.toolManifestMap ?? {}).join(', ')}), requiring intervention`,
+        );
+        toolsNeedingIntervention.push(toolCalling);
         continue;
       }
 
@@ -547,6 +560,10 @@ export class GeneralChatAgent implements Agent {
           };
         }
 
+        if (context.stepContext?.hasQueuedMessages) {
+          return { reason: 'queued_message_interrupt', type: 'finish' };
+        }
+
         // No pending tools, continue to call LLM with tool results
         return this.toLLMCall({
           messages: state.messages,
@@ -577,6 +594,12 @@ export class GeneralChatAgent implements Agent {
           };
         }
 
+        // If there are queued user messages, finish early so the queue
+        // can be processed as a new operation with full context
+        if (context.stepContext?.hasQueuedMessages) {
+          return { reason: 'queued_message_interrupt', type: 'finish' };
+        }
+
         // No pending tools, continue to call LLM with tool results
         return this.toLLMCall({
           messages: state.messages,
@@ -604,6 +627,10 @@ export class GeneralChatAgent implements Agent {
       case 'tasks_batch_result': {
         // Async tasks batch completed, continue to call LLM with results
         const { parentMessageId } = context.payload as TasksBatchResultPayload;
+
+        if (context.stepContext?.hasQueuedMessages) {
+          return { reason: 'queued_message_interrupt', type: 'finish' };
+        }
 
         // Inject a virtual user message to force the model to summarize or continue
         // This fixes an issue where some models (e.g., Kimi K2) return empty content

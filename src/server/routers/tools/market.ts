@@ -398,16 +398,18 @@ export const marketRouter = router({
         args: z.record(z.any()).optional(),
         provider: z.string(),
         toolName: z.string(),
+        topicId: z.string().optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      const { provider, toolName, args } = input;
-      log('connectCallTool: provider=%s, tool=%s', provider, toolName);
-
+      const { provider, toolName, args, topicId } = input;
+      log('connectCallTool: provider=%s, tool=%s, topicId=%s', provider, toolName, topicId);
       try {
         const response = await ctx.marketSDK.skills.callTool(provider, {
           args: args || {},
           tool: toolName,
+          // @ts-ignore
+          topicId,
         });
 
         log('connectCallTool response: %O', response);
@@ -525,7 +527,7 @@ export const marketRouter = router({
   /**
    * List all user connections
    */
-  connectListConnections: lobehubSkillAuthProcedure.query(async ({ ctx }) => {
+  connectListConnections: lobehubSkillBaseProcedure.query(async ({ ctx }) => {
     log('connectListConnections');
 
     try {

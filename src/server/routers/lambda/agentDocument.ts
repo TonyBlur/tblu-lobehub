@@ -85,16 +85,20 @@ export const agentDocumentRouter = router({
       z.object({
         agentId: z.string(),
         content: z.string(),
+        createdAt: z.date().optional(),
         filename: z.string(),
         metadata: metadataSchema.optional(),
+        updatedAt: z.date().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       return ctx.agentDocumentService.upsertDocument({
         agentId: input.agentId,
         content: input.content,
+        createdAt: input.createdAt,
         filename: input.filename,
         metadata: input.metadata,
+        updatedAt: input.updatedAt,
       });
     }),
 
@@ -182,6 +186,48 @@ export const agentDocumentRouter = router({
     .input(z.object({ agentId: z.string() }))
     .query(async ({ ctx, input }) => {
       return ctx.agentDocumentService.hasDocuments(input.agentId);
+    }),
+
+  /**
+   * Tool-oriented: list documents for an agent
+   */
+  listDocuments: agentDocumentProcedure
+    .input(z.object({ agentId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.agentDocumentService.listDocuments(input.agentId);
+    }),
+
+  /**
+   * Tool-oriented: read document by filename
+   */
+  readDocumentByFilename: agentDocumentProcedure
+    .input(
+      z.object({
+        agentId: z.string(),
+        filename: z.string(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      return ctx.agentDocumentService.getDocumentByFilename(input.agentId, input.filename);
+    }),
+
+  /**
+   * Tool-oriented: upsert document by filename
+   */
+  upsertDocumentByFilename: agentDocumentProcedure
+    .input(
+      z.object({
+        agentId: z.string(),
+        content: z.string(),
+        filename: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return ctx.agentDocumentService.upsertDocumentByFilename({
+        agentId: input.agentId,
+        content: input.content,
+        filename: input.filename,
+      });
     }),
 
   /**

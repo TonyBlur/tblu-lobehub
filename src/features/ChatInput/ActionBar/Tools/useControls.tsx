@@ -59,20 +59,17 @@ export const useControls = ({ setUpdating }: { setUpdating: (updating: boolean) 
   const userAgentSkills = useToolStore(agentSkillsSelectors.getUserAgentSkills, isEqual);
 
   const [
-    useFetchPluginStore,
     useFetchUserKlavisServers,
     useFetchLobehubSkillConnections,
     useFetchUninstalledBuiltinTools,
     useFetchAgentSkills,
   ] = useToolStore((s) => [
-    s.useFetchPluginStore,
     s.useFetchUserKlavisServers,
     s.useFetchLobehubSkillConnections,
     s.useFetchUninstalledBuiltinTools,
     s.useFetchAgentSkills,
   ]);
 
-  useFetchPluginStore();
   useFetchInstalledPlugins();
   useFetchUninstalledBuiltinTools(true);
   useFetchAgentSkills(true);
@@ -301,9 +298,27 @@ export const useControls = ({ setUpdating }: { setUpdating: (updating: boolean) 
   );
 
   // Skills list items (including LobeHub Skill and Klavis)
-  // Connected items listed first
+  // Connected items listed first, deduplicated by key (LobeHub takes priority)
   const skillItems = useMemo(() => {
-    const allItems = [...lobehubSkillItems, ...klavisServerItems];
+    // Deduplicate by key - LobeHub items take priority over Klavis
+    const seenKeys = new Set<string>();
+    const allItems: typeof lobehubSkillItems = [];
+
+    // Add LobeHub items first (they take priority)
+    for (const item of lobehubSkillItems) {
+      if (!seenKeys.has(item.key as string)) {
+        seenKeys.add(item.key as string);
+        allItems.push(item);
+      }
+    }
+
+    // Add Klavis items only if not already present
+    for (const item of klavisServerItems) {
+      if (!seenKeys.has(item.key as string)) {
+        seenKeys.add(item.key as string);
+        allItems.push(item);
+      }
+    }
 
     return allItems.sort((a, b) => {
       const isConnectedA =

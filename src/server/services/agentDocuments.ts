@@ -20,12 +20,14 @@ const MAX_UNIQUE_FILENAME_ATTEMPTS = 1000;
 interface UpsertDocumentParams {
   agentId: string;
   content: string;
+  createdAt?: Date;
   filename: string;
   loadPosition?: DocumentLoadPosition;
   loadRules?: DocumentLoadRules;
   metadata?: Record<string, any>;
   policy?: AgentDocumentPolicy;
   templateId?: string;
+  updatedAt?: Date;
 }
 
 /**
@@ -207,6 +209,8 @@ export class AgentDocumentsService {
     templateId,
     metadata,
     policy,
+    createdAt,
+    updatedAt,
   }: UpsertDocumentParams) {
     return this.agentDocumentModel.upsert(
       agentId,
@@ -217,6 +221,8 @@ export class AgentDocumentsService {
       templateId,
       metadata,
       policy,
+      createdAt,
+      updatedAt,
     );
   }
 
@@ -319,6 +325,32 @@ export class AgentDocumentsService {
         templateId: doc.templateId || undefined,
       });
     }
+  }
+
+  async listDocuments(agentId: string) {
+    const docs = await this.agentDocumentModel.findByAgent(agentId);
+    return docs.map((d) => ({
+      filename: d.filename,
+      id: d.id,
+      loadPosition: d.policy?.context?.position,
+      title: d.title,
+    }));
+  }
+
+  async getDocumentByFilename(agentId: string, filename: string) {
+    return this.agentDocumentModel.findByFilename(agentId, filename);
+  }
+
+  async upsertDocumentByFilename({
+    agentId,
+    filename,
+    content,
+  }: {
+    agentId: string;
+    content: string;
+    filename: string;
+  }) {
+    return this.agentDocumentModel.upsert(agentId, filename, content);
   }
 
   async editDocumentById(documentId: string, content: string, expectedAgentId?: string) {

@@ -56,16 +56,21 @@ exports[`settingsSelectors > currentSystemAgent > should merge DEFAULT_SYSTEM_AG
   },
   "enableAutoReply": true,
   "generationTopic": {
-    "model": "gpt-5-mini",
+    "model": "gpt-5.4-mini",
     "provider": "openai",
   },
   "historyCompress": {
     "model": "claude-sonnet-4-6",
     "provider": "anthropic",
   },
+  "inputCompletion": {
+    "enabled": false,
+    "model": "gpt-5.4-mini",
+    "provider": "openai",
+  },
   "queryRewrite": {
     "enabled": true,
-    "model": "gpt-5-mini",
+    "model": "gpt-5.4-mini",
     "provider": "openai",
   },
   "replyMessage": "Custom auto reply",
@@ -74,11 +79,11 @@ exports[`settingsSelectors > currentSystemAgent > should merge DEFAULT_SYSTEM_AG
     "provider": "anthropic",
   },
   "topic": {
-    "model": "gpt-5-mini",
+    "model": "gpt-5.4-mini",
     "provider": "openai",
   },
   "translation": {
-    "model": "gpt-5-mini",
+    "model": "gpt-5.4-mini",
     "provider": "openai",
   },
 }

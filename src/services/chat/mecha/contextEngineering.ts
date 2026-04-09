@@ -18,11 +18,7 @@ import type {
   ToolDiscoveryConfig,
   UserMemoryData,
 } from '@lobechat/context-engine';
-import {
-  AGENT_DOCUMENT_INJECTION_POSITIONS,
-  MessagesEngine,
-  resolveTopicReferences,
-} from '@lobechat/context-engine';
+import { MessagesEngine, resolveTopicReferences } from '@lobechat/context-engine';
 import { historySummaryPrompt } from '@lobechat/prompts';
 import type {
   OpenAIChatMessage,
@@ -35,7 +31,6 @@ import debug from 'debug';
 import { isCanUseFC } from '@/helpers/isCanUseFC';
 import { VARIABLE_GENERATORS } from '@/helpers/parserPlaceholder';
 import { lambdaClient } from '@/libs/trpc/client';
-import { agentDocumentService } from '@/services/agentDocument';
 import { notebookService } from '@/services/notebook';
 import { getAgentStoreState } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
@@ -55,26 +50,13 @@ import {
 import { isCanUseVideo, isCanUseVision } from '../helper';
 import { combineUserMemoryData, resolveTopicMemories, resolveUserPersona } from './memoryManager';
 import { resolveClientSkills } from './skillEngineering';
-import { stripActionTagsFromText } from './skillPreload';
 
 const log = debug('context-engine:contextEngineering');
-
-const VALID_DOCUMENT_POSITIONS = new Set<AgentContextDocument['loadPosition']>(
-  AGENT_DOCUMENT_INJECTION_POSITIONS,
-);
-
-const normalizeDocumentPosition = (
-  position: string | null | undefined,
-): AgentContextDocument['loadPosition'] | undefined => {
-  if (!position) return undefined;
-  return VALID_DOCUMENT_POSITIONS.has(position as AgentContextDocument['loadPosition'])
-    ? (position as AgentContextDocument['loadPosition'])
-    : undefined;
-};
 
 interface ContextEngineeringContext {
   /** Agent Builder context for injecting current agent info */
   agentBuilderContext?: AgentBuilderContext;
+  agentDocuments?: AgentContextDocument[];
   /** The agent ID that will respond (for group context injection) */
   agentId?: string;
   enableHistoryCount?: boolean;
@@ -110,39 +92,6 @@ interface ContextEngineeringContext {
   topicId?: string;
 }
 
-type TextContentPart = {
-  text?: string;
-  type?: string;
-  [key: string]: unknown;
-};
-
-const preprocessActionTags = (messages: UIChatMessage[]): UIChatMessage[] =>
-  messages.map((message) => {
-    if (message.role !== 'user') return message;
-
-    if (typeof message.content === 'string') {
-      return {
-        ...message,
-        content: stripActionTagsFromText(message.content),
-      };
-    }
-
-    if (Array.isArray(message.content)) {
-      const contentParts = message.content as TextContentPart[];
-
-      return {
-        ...message,
-        content: contentParts.map((part) =>
-          part?.type === 'text' && typeof part.text === 'string'
-            ? { ...part, text: stripActionTagsFromText(part.text) }
-            : part,
-        ),
-      } as unknown as UIChatMessage;
-    }
-
-    return message;
-  });
-
 // REVIEW: Maybe we can constrain identity, preference, exp to reorder or trim the context instead of passing everything in
 export const contextEngineering = async ({
   messages = [],
@@ -157,6 +106,7 @@ export const contextEngineering = async ({
   historyCount,
   historySummary,
   agentBuilderContext,
+  agentDocuments,
   agentId,
   groupId,
   initialContext,
@@ -165,8 +115,6 @@ export const contextEngineering = async ({
   topicId,
   memoryContext,
 }: ContextEngineeringContext): Promise<OpenAIChatMessage[]> => {
-  messages = preprocessActionTags(messages);
-
   log('tools: %o', tools);
 
   // Check if Agent Builder tool is enabled
@@ -224,7 +172,6 @@ export const contextEngineering = async ({
 
   // Get agent store state (used for both group agent builder context and file/knowledge base)
   const agentStoreState = getAgentStoreState();
-  const resolvedAgentId = agentId || agentStoreState.activeAgentId;
 
   // Build group agent builder context if Group Agent Builder is enabled
   // Note: Uses activeGroupId from chatStore to get the group being edited
@@ -350,31 +297,6 @@ export const contextEngineering = async ({
   const knowledgeBases = agentKnowledgeBases
     .filter((kb) => kb.enabled)
     .map((kb) => ({ description: kb.description, id: kb.id, name: kb.name }));
-
-  let agentDocuments: AgentContextDocument[] | undefined;
-
-  if (resolvedAgentId) {
-    try {
-      const documents = await agentDocumentService.getDocuments({ agentId: resolvedAgentId });
-      agentDocuments = documents.map((doc) => ({
-        content: doc.content,
-        filename: doc.filename,
-        id: doc.id,
-        loadRules: doc.loadRules,
-        policyLoadFormat: doc.policy?.context?.policyLoadFormat || doc.policyLoadFormat,
-        loadPosition: normalizeDocumentPosition(
-          doc.policy?.context?.position || doc.policyLoadPosition,
-        ),
-        policyId: doc.templateId,
-        title: doc.title,
-      }));
-
-      log('agentDocuments resolved: %d', agentDocuments.length);
-    } catch (error) {
-      // Agent documents are optional context; failure should not block message processing.
-      log('Failed to resolve agent documents for agent %s: %O', resolvedAgentId, error);
-    }
-  }
 
   // Resolve user memories: topic memories and user persona are independent layers
   // Both functions now read from cache only (no network requests) to avoid blocking sendMessage
@@ -641,6 +563,10 @@ export const contextEngineering = async ({
     // runtime context
     initialContext,
     stepContext,
+
+    // Selected skills/tools from user for this request
+    selectedSkills: initialContext?.selectedSkills,
+    selectedTools: initialContext?.selectedTools,
 
     // Skills configuration — expose all installed skills so the AI can discover and activate them
     skillsConfig: {
