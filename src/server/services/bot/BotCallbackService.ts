@@ -9,8 +9,14 @@ import { getMessageGatewayClient } from '@/server/services/gateway/MessageGatewa
 import { SystemAgentService } from '@/server/services/systemAgent';
 
 import { AgentBridgeService } from './AgentBridgeService';
-import type { BotProviderConfig, PlatformClient, PlatformMessenger, UsageStats } from './platforms';
-import { mergeWithDefaults, platformRegistry } from './platforms';
+import type { BotReplyLocale, PlatformClient, PlatformMessenger, UsageStats } from './platforms';
+import {
+  getBotReplyLocale,
+  getStepReactionEmoji,
+  platformRegistry,
+  resolveBotProviderConfig,
+} from './platforms';
+import { clearReactionState, getReactionState, saveReactionState } from './reactionState';
 import {
   renderError,
   renderFinalReply,
@@ -39,6 +45,7 @@ export interface BotCallbackBody {
   lastLLMContent?: string;
   lastToolsCalling?: any;
   llmCalls?: number;
+  operationId?: string;
   platformThreadId: string;
   progressMessageId?: string;
   reason?: string;
@@ -85,11 +92,16 @@ export class BotCallbackService {
 
     const entry = platformRegistry.getPlatform(platform);
     const canEdit = entry?.supportsMessageEdit !== false;
+    const replyLocale = getBotReplyLocale(platform);
 
     if (type === 'step') {
       if (canEdit && progressMessageId && settings.displayToolCalls !== false) {
-        await this.handleStep(body, messenger, progressMessageId, client);
+        await this.handleStep(body, messenger, progressMessageId, client, replyLocale);
       }
+      // Swap the user-message reaction to match the current step type (tool
+      // call vs. LLM reasoning). Runs regardless of `displayToolCalls` because
+      // the progress-message edit and the reaction are separate UX channels.
+      await this.swapStepReaction(body, client, platform);
       // Only renew typing when more steps are expected. The final step
       // (shouldContinue=false) may arrive after the completion callback
       // via async delivery (QStash), which would restart typing after stop.
@@ -105,10 +117,11 @@ export class BotCallbackService {
         messenger,
         progressMessageId ?? '',
         client,
+        replyLocale,
         charLimit,
         canEdit,
       );
-      await this.removeEyesReaction(body, client, platformThreadId);
+      await this.clearStepReaction(body, client, platform);
       // Clear the active thread tracker so the thread can accept new messages.
       // In queue mode, the bridge handler's finally block skips this cleanup
       // to keep the thread marked active while the agent runs on the job queue.
@@ -151,16 +164,12 @@ export class BotCallbackService {
       throw new Error(`Unsupported platform: ${platform}`);
     }
 
-    const rawSettings = (row as any).settings as Record<string, unknown> | undefined;
-    const settings = mergeWithDefaults(entry.schema, rawSettings);
-    const charLimit = (settings.charLimit as number) || undefined;
-
-    const config: BotProviderConfig = {
+    const { config, settings } = resolveBotProviderConfig(entry, {
       applicationId,
       credentials,
-      platform,
-      settings,
-    };
+      settings: (row as any).settings as Record<string, unknown> | undefined,
+    });
+    const charLimit = (settings.charLimit as number) || undefined;
 
     const client = entry.clientFactory.createClient(config, {
       redisClient: getAgentRuntimeRedisClient() as any,
@@ -175,27 +184,31 @@ export class BotCallbackService {
     messenger: PlatformMessenger,
     progressMessageId: string,
     client: PlatformClient,
+    replyLocale: BotReplyLocale,
   ): Promise<void> {
     if (!body.shouldContinue) return;
 
-    const msgBody = renderStepProgress({
-      content: body.content,
-      elapsedMs: body.elapsedMs,
-      executionTimeMs: body.executionTimeMs ?? 0,
-      lastContent: body.lastLLMContent,
-      lastToolsCalling: body.lastToolsCalling,
-      reasoning: body.reasoning,
-      stepType: body.stepType ?? ('call_llm' as const),
-      thinking: body.thinking ?? false,
-      toolsCalling: body.toolsCalling,
-      toolsResult: body.toolsResult,
-      totalCost: body.totalCost ?? 0,
-      totalInputTokens: body.totalInputTokens ?? 0,
-      totalOutputTokens: body.totalOutputTokens ?? 0,
-      totalSteps: body.totalSteps ?? 0,
-      totalTokens: body.totalTokens ?? 0,
-      totalToolCalls: body.totalToolCalls,
-    });
+    const msgBody = renderStepProgress(
+      {
+        content: body.content,
+        elapsedMs: body.elapsedMs,
+        executionTimeMs: body.executionTimeMs ?? 0,
+        lastContent: body.lastLLMContent,
+        lastToolsCalling: body.lastToolsCalling,
+        reasoning: body.reasoning,
+        stepType: body.stepType ?? ('call_llm' as const),
+        thinking: body.thinking ?? false,
+        toolsCalling: body.toolsCalling,
+        toolsResult: body.toolsResult,
+        totalCost: body.totalCost ?? 0,
+        totalInputTokens: body.totalInputTokens ?? 0,
+        totalOutputTokens: body.totalOutputTokens ?? 0,
+        totalSteps: body.totalSteps ?? 0,
+        totalTokens: body.totalTokens ?? 0,
+        totalToolCalls: body.totalToolCalls,
+      },
+      replyLocale,
+    );
 
     const stats: UsageStats = {
       elapsedMs: body.elapsedMs,
@@ -224,13 +237,19 @@ export class BotCallbackService {
     messenger: PlatformMessenger,
     progressMessageId: string,
     client: PlatformClient,
+    replyLocale: BotReplyLocale,
     charLimit?: number,
     canEdit = true,
   ): Promise<void> {
-    const { reason, lastAssistantContent, errorMessage } = body;
+    const { reason, lastAssistantContent, errorMessage, operationId } = body;
 
     if (reason === 'error') {
-      const errorText = renderError(errorMessage || 'Agent execution failed');
+      log(
+        'handleCompletion: agent run failed, operationId=%s, errorMessage=%s',
+        operationId,
+        errorMessage,
+      );
+      const errorText = renderError(operationId, replyLocale);
       try {
         if (canEdit && progressMessageId) {
           await messenger.editMessage(progressMessageId, errorText);
@@ -244,7 +263,7 @@ export class BotCallbackService {
     }
 
     if (reason === 'interrupted') {
-      const stoppedText = renderStopped(errorMessage || 'Execution stopped.');
+      const stoppedText = renderStopped(errorMessage, replyLocale);
       try {
         await messenger.createMessage(stoppedText);
       } catch (error) {
@@ -289,25 +308,72 @@ export class BotCallbackService {
     }
   }
 
-  private async removeEyesReaction(
+  /**
+   * Swap the user-message reaction to match the current step type. Reads the
+   * previous emoji from Redis so the remove-then-add sequence ends with only
+   * one bot reaction visible. If Redis is unavailable, best-effort adds the
+   * new emoji — there's nothing to remove and falling back to "stack on each
+   * step" is strictly better than leaking nothing.
+   */
+  private async swapStepReaction(
     body: BotCallbackBody,
     client: PlatformClient,
-    platformThreadId: string,
+    platform: string,
   ): Promise<void> {
-    const { userMessageId } = body;
+    const { userMessageId, applicationId, platformThreadId } = body;
     if (!userMessageId) return;
 
-    // Thread-starter messages may live in the parent channel (e.g. Discord),
-    // so resolve the correct thread ID before obtaining the messenger.
+    const desiredEmoji = getStepReactionEmoji(body.stepType, body.toolsCalling);
     const reactionThreadId =
       client.resolveReactionThreadId?.(platformThreadId, userMessageId) ?? platformThreadId;
     const messenger = client.getMessenger(reactionThreadId);
 
+    const previous = await getReactionState(platform, applicationId, userMessageId);
+    if (previous?.emoji === desiredEmoji) return;
+
     try {
-      await messenger.removeReaction(userMessageId, '👀');
+      await messenger.replaceReaction?.(userMessageId, previous?.emoji ?? null, desiredEmoji);
     } catch (error) {
-      log('removeEyesReaction: failed: %O', error);
+      log('swapStepReaction: failed: %O', error);
     }
+
+    await saveReactionState(platform, applicationId, userMessageId, {
+      emoji: desiredEmoji,
+      reactionThreadId,
+    });
+  }
+
+  /**
+   * Remove whatever emoji was last applied to the user message and clear the
+   * tracking state. Falls back to the legacy `👀` when no state is recorded
+   * so pre-feature runs (or runs against a Redis-less setup) still clean up.
+   */
+  private async clearStepReaction(
+    body: BotCallbackBody,
+    client: PlatformClient,
+    platform: string,
+  ): Promise<void> {
+    const { userMessageId, applicationId, platformThreadId } = body;
+    if (!userMessageId) return;
+
+    const state = await getReactionState(platform, applicationId, userMessageId);
+    const emoji = state?.emoji ?? '👀';
+
+    // Thread-starter messages may live in the parent channel (e.g. Discord),
+    // so resolve the correct thread ID before obtaining the messenger.
+    const reactionThreadId =
+      state?.reactionThreadId ??
+      client.resolveReactionThreadId?.(platformThreadId, userMessageId) ??
+      platformThreadId;
+    const messenger = client.getMessenger(reactionThreadId);
+
+    try {
+      await messenger.replaceReaction?.(userMessageId, emoji, null);
+    } catch (error) {
+      log('clearStepReaction: failed: %O', error);
+    }
+
+    await clearReactionState(platform, applicationId, userMessageId);
   }
 
   /**

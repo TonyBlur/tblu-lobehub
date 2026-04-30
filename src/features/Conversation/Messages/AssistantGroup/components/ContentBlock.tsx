@@ -4,7 +4,6 @@ import { memo, useCallback } from 'react';
 import SafeBoundary from '@/components/ErrorBoundary';
 import { LOADING_FLAT } from '@/const/message';
 import { useErrorContent } from '@/features/Conversation/Error';
-import { type AssistantContentBlock } from '@/types/index';
 
 import ErrorContent from '../../../ChatItem/components/ErrorContent';
 import { messageStateSelectors, useConversationStore } from '../../../store';
@@ -12,11 +11,11 @@ import ImageFileListViewer from '../../components/ImageFileListViewer';
 import Reasoning from '../../components/Reasoning';
 import { Tools } from '../Tools';
 import MessageContent from './MessageContent';
+import type { RenderableAssistantContentBlock } from './types';
 
-interface ContentBlockProps extends AssistantContentBlock {
+interface ContentBlockProps extends RenderableAssistantContentBlock {
   assistantId: string;
   disableEditing?: boolean;
-  isFirstBlock?: boolean;
 }
 const ContentBlock = memo<ContentBlockProps>(
   ({
@@ -26,9 +25,10 @@ const ContentBlock = memo<ContentBlockProps>(
     imageList,
     reasoning,
     error,
+    domId,
     assistantId,
     disableEditing,
-    isFirstBlock,
+    disableMarkdownStreaming,
   }) => {
     const errorContent = useErrorContent(error);
     const showImageItems = !!imageList && imageList.length > 0;
@@ -46,7 +46,7 @@ const ContentBlock = memo<ContentBlockProps>(
     const handleRegenerate = useCallback(async () => {
       await deleteMessage(id);
       continueGeneration(assistantId);
-    }, [id]);
+    }, [assistantId, continueGeneration, deleteMessage, id]);
 
     if (error && (content === LOADING_FLAT || !content)) {
       return (
@@ -75,7 +75,7 @@ const ContentBlock = memo<ContentBlockProps>(
     }
 
     return (
-      <Flexbox gap={8} id={id}>
+      <Flexbox gap={8} id={domId ?? id}>
         {showReasoning && (
           <SafeBoundary>
             <Reasoning {...reasoning} id={id} />
@@ -86,9 +86,9 @@ const ContentBlock = memo<ContentBlockProps>(
           <SafeBoundary variant="alert">
             <MessageContent
               content={content}
+              disableStreaming={disableMarkdownStreaming}
               hasTools={hasTools}
               id={id}
-              isFirstBlock={isFirstBlock}
             />
           </SafeBoundary>
         )}

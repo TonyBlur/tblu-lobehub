@@ -77,9 +77,33 @@ export interface FieldSchema {
  * LobeHub-specific outbound capabilities used by callback and bridge services.
  */
 export interface PlatformMessenger {
+  /**
+   * Add a reaction to a message (optional — platforms without reaction APIs
+   * can omit this). Callers must no-op on platforms that don't implement it.
+   */
+  addReaction?: (messageId: string, emoji: string) => Promise<void>;
   createMessage: (content: string) => Promise<void>;
   editMessage: (messageId: string, content: string) => Promise<void>;
   removeReaction: (messageId: string, emoji: string) => Promise<void>;
+  /**
+   * Transition the bot's reaction on a message from `prevEmoji` to
+   * `nextEmoji`. Either can be `null`: `prev=null` means "nothing was there,
+   * just add", `next=null` means "clear it". Each platform implements this
+   * with the fewest API calls it can:
+   *
+   * - Telegram: single `setMessageReaction` (atomic replace).
+   * - Discord / Slack / Feishu: `addReaction(next)` then `removeReaction(prev)`
+   *   in that order so the user always sees at least one bot reaction during
+   *   the transition.
+   *
+   * Optional — platforms with no reaction API (QQ, WeChat) omit it, and
+   * callers must guard with optional chaining.
+   */
+  replaceReaction?: (
+    messageId: string,
+    prevEmoji: string | null,
+    nextEmoji: string | null,
+  ) => Promise<void>;
   triggerTyping?: () => Promise<void>;
   updateThreadName?: (name: string) => Promise<void>;
 }
@@ -118,6 +142,19 @@ export interface PlatformClient {
   /** Create a Chat SDK adapter config for inbound message handling. */
   createAdapter: () => Record<string, any>;
 
+  /**
+   * Read the inbound message author's preferred language from the platform
+   * payload (e.g. Telegram's `from.language_code`, Discord's `user.locale`).
+   * Returns the raw platform string — caller is responsible for normalizing
+   * it against the project `Locales` set. Return `undefined` when the
+   * platform doesn't expose locale or the field is empty so the caller can
+   * fall back to the platform default.
+   *
+   * Optional — platforms that don't expose user locale (QQ / WeChat) omit
+   * this method.
+   */
+  extractAuthorLocale?: (message: Message) => string | undefined;
+
   /** Extract the chat/channel ID from a composite platformThreadId. */
   extractChatId: (platformThreadId: string) => string;
 
@@ -135,12 +172,29 @@ export interface PlatformClient {
   extractFiles?: (message: Message) => Promise<AttachmentSource[] | ExtractFilesResult | undefined>;
 
   /**
+   * Surface additional channel IDs the group allowlist (`groupAllowFrom`)
+   * should match against, beyond the inbound `thread.channelId` the router
+   * already supplies.
+   *
+   * Discord auto-creates a per-mention reply thread when the bot is
+   * @-mentioned in a parent channel; the thread's ID becomes
+   * `thread.channelId`, but operators copy the **parent** channel ID into
+   * the allowlist. Without this hook the allowlist would never match for
+   * @-mentions. The hook returns the parent so either ID lets the message
+   * through.
+   *
+   * Other platforms (Telegram chat IDs, Slack channel IDs, Feishu chat IDs)
+   * have a 1:1 mapping with what the user pastes and can omit this method.
+   */
+  extraGroupAllowlistChannels?: (platformThreadId: string) => string[];
+
+  /**
    * Transform outbound Markdown content into a format the platform can render.
    * Called before `formatReply` and `splitMessage`.
    *
-   * Platforms that don't support Markdown (e.g. WeChat, QQ) should strip
-   * formatting to plain text. Platforms with native Markdown support can
-   * omit this method — the content is passed through as-is.
+   * Platforms that don't support Markdown (e.g. QQ) should strip formatting
+   * to plain text. Platforms with native Markdown support can omit this
+   * method — the content is passed through as-is.
    */
   formatMarkdown?: (markdown: string) => string;
 
@@ -297,14 +351,10 @@ export interface PlatformDefinition {
    * - 'polling': persistent long-polling connection (e.g. WeChat)
    *
    * For single-mode platforms this is the runtime mode. For multi-mode
-   * platforms where users can pick per-provider via `settings.connectionMode`,
-   * this represents the *recommended* default for new providers (form initial
-   * value + cron coarse filter).
-   *
-   * For platforms that added multi-mode support after launch (Slack/Feishu/
-   * Lark/QQ), legacy provider rows without an explicit setting fall back to
-   * `'webhook'` instead — see `LEGACY_WEBHOOK_PLATFORMS` and
-   * `getEffectiveConnectionMode` in `./utils.ts`.
+   * platforms where users pick per-provider via `settings.connectionMode`,
+   * this is the runtime fallback when settings have no explicit value (after
+   * schema defaults have been merged in). See `getEffectiveConnectionMode`
+   * in `./utils.ts`.
    */
   connectionMode: ConnectionMode;
 

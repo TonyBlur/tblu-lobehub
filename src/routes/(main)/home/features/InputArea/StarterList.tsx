@@ -1,9 +1,10 @@
 import { BUILTIN_AGENT_SLUGS } from '@lobechat/builtin-agents';
+import { Jimeng } from '@lobehub/icons';
 import { type ButtonProps } from '@lobehub/ui';
 import { Button, Center, Tooltip } from '@lobehub/ui';
 import { GroupBotSquareIcon } from '@lobehub/ui/icons';
 import { createStaticStyles, cssVar, cx } from 'antd-style';
-import { BotIcon, ImageIcon, PenLineIcon, VideoIcon } from 'lucide-react';
+import { BotIcon, ImageIcon, PenLineIcon } from 'lucide-react';
 import { memo, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -77,13 +78,14 @@ const StarterList = memo(() => {
         titleKey: 'starter.write',
       },
       {
+        hot: true,
         icon: ImageIcon,
         key: 'image',
         titleKey: 'starter.imageGeneration',
       },
       {
         hot: true,
-        icon: VideoIcon,
+        icon: Jimeng.Color,
         key: 'video',
         titleKey: 'starter.videoGeneration',
       },
@@ -100,12 +102,12 @@ const StarterList = memo(() => {
   const handleClick = useCallback(
     (key: StarterMode) => {
       if (key === 'video') {
-        navigate('/video?model=doubao-seedance-2-0-260128');
+        navigate('/video?model=dreamina-seedance-2-0-260128');
         return;
       }
 
       if (key === 'image') {
-        navigate('/image');
+        navigate('/image?model=gpt-image-2');
         return;
       }
 

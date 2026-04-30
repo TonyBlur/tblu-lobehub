@@ -25,13 +25,14 @@ export interface LobeAgentChatConfig extends AgentMemoryChatConfig {
    */
   compressionModelId?: string;
 
+  deepseekV4ReasoningEffort?: 'high' | 'max';
+
   /**
    * Disable context caching
    */
   disableContextCaching?: boolean;
 
   effort?: 'low' | 'medium' | 'high' | 'max';
-
   /**
    * Whether to enable adaptive thinking (Claude Opus 4.6)
    */
@@ -95,6 +96,10 @@ export interface LobeAgentChatConfig extends AgentMemoryChatConfig {
    */
   imageResolution2?: '512px' | '1K' | '2K' | '4K';
   inputTemplate?: string;
+  /**
+   * Effort level for Claude Opus 4.7 (adds xhigh tier between high and max)
+   */
+  opus47Effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   reasoningBudgetToken?: number;
   /**
    * Reasoning budget token for models with 32k max (GLM-5/GLM-4.7)
@@ -187,11 +192,13 @@ export const AgentChatConfigSchema = z
     gpt5_2ProReasoningEffort: z.enum(['medium', 'high', 'xhigh']).optional(),
     gpt5_2ReasoningEffort: z.enum(['none', 'low', 'medium', 'high', 'xhigh']).optional(),
     grok4_20ReasoningEffort: z.enum(['low', 'medium', 'high', 'xhigh']).optional(),
+    deepseekV4ReasoningEffort: z.enum(['high', 'max']).optional(),
     historyCount: z.number().optional(),
     imageAspectRatio: z.string().optional(),
     imageAspectRatio2: z.string().optional(),
     imageResolution: z.enum(['1K', '2K', '4K']).optional(),
     imageResolution2: z.enum(['512px', '1K', '2K', '4K']).optional(),
+    opus47Effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
     runtimeEnv: RuntimeEnvConfigSchema.optional(),
     reasoningBudgetToken: z.number().optional(),
     reasoningBudgetToken32k: z.number().optional(),

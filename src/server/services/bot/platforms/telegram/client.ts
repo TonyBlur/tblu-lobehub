@@ -173,17 +173,39 @@ class TelegramWebhookClient implements PlatformClient {
     const telegram = new TelegramApi(this.config.credentials.botToken);
     const chatId = extractChatId(platformThreadId);
     return {
+      addReaction: (messageId, emoji) =>
+        telegram.setMessageReaction(chatId, parseTelegramMessageId(messageId), emoji),
       createMessage: (content) => telegram.sendMessage(chatId, content).then(() => {}),
       editMessage: (messageId, content) =>
         telegram.editMessageText(chatId, parseTelegramMessageId(messageId), content),
       removeReaction: (messageId) =>
         telegram.removeMessageReaction(chatId, parseTelegramMessageId(messageId)),
+      // Telegram replaces the whole reaction list in one call — one API
+      // request is both cheaper and flicker-free.
+      replaceReaction: async (messageId, _prevEmoji, nextEmoji) => {
+        const id = parseTelegramMessageId(messageId);
+        if (nextEmoji) await telegram.setMessageReaction(chatId, id, nextEmoji);
+        else await telegram.removeMessageReaction(chatId, id);
+      },
       triggerTyping: () => telegram.sendChatAction(chatId, 'typing'),
     };
   }
 
   extractChatId(platformThreadId: string): string {
     return extractChatId(platformThreadId);
+  }
+
+  /**
+   * Telegram exposes the sender's preferred UI language on every inbound
+   * message via `from.language_code`. Values are IETF-ish (`en`, `zh-hans`,
+   * `pt-br`, …) so the caller normalizes them against the project locale set.
+   * Returns `undefined` for service messages or anonymous senders that omit
+   * the field.
+   */
+  extractAuthorLocale(message: Message): string | undefined {
+    const raw = (message as any).raw as Record<string, any> | undefined;
+    const code = raw?.from?.language_code;
+    return typeof code === 'string' && code.length > 0 ? code : undefined;
   }
 
   async registerBotCommands(

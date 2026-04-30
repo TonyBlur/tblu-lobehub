@@ -272,6 +272,170 @@ describe('anthropicHelpers', () => {
       ]);
     });
 
+    it('logs and falls back to empty input when tool_call arguments are invalid JSON', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const message: OpenAIChatMessage = {
+        content: '',
+        role: 'assistant',
+        tool_calls: [
+          {
+            id: 'call_bad',
+            type: 'function',
+            function: {
+              name: 'search',
+              // LOBE-7761 Qwen shape — upstream sanitize should catch this, but
+              // if it doesn't we want noise in the logs rather than a silent drop.
+              arguments: '{, "query": "anthropic"}',
+            },
+          },
+        ],
+      };
+
+      const result = await buildAnthropicMessage(message);
+
+      expect(result!.content).toEqual([
+        { id: 'call_bad', input: {}, name: 'search', type: 'tool_use' },
+      ]);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'parse tool call arguments error:',
+        expect.objectContaining({
+          id: 'call_bad',
+          name: 'search',
+          arguments: '{, "query": "anthropic"}',
+        }),
+        expect.any(Error),
+      );
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('recovers tool_call input from a single-element array (model wrapped args in [])', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const message: OpenAIChatMessage = {
+        content: '',
+        role: 'assistant',
+        tool_calls: [
+          {
+            id: 'call_wrapped',
+            type: 'function',
+            function: {
+              name: 'search',
+              arguments: '[{"query":"anthropic"}]',
+            },
+          },
+        ],
+      };
+
+      const result = await buildAnthropicMessage(message);
+
+      expect(result!.content).toEqual([
+        { id: 'call_wrapped', input: { query: 'anthropic' }, name: 'search', type: 'tool_use' },
+      ]);
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('recovered from array'),
+        expect.objectContaining({
+          arrayLength: 1,
+          id: 'call_wrapped',
+          name: 'search',
+        }),
+      );
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('recovers tool_call input from element[0] when arguments parse to a multi-element array', async () => {
+      // LOBE-8201 — model emitted long writeLocalFile args containing many
+      // unescaped quotes, which JSON.parse re-segmented into a top-level array.
+      // element[0] usually still carries the first legit key (e.g. `content`),
+      // so prefer partial recovery over total loss.
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const message: OpenAIChatMessage = {
+        content: 'fix:',
+        role: 'assistant',
+        tool_calls: [
+          {
+            id: 'call_array',
+            type: 'function',
+            function: {
+              name: 'writeLocalFile',
+              arguments: '[{"content":"a"},{"content":"b"}]',
+            },
+          },
+        ],
+      };
+
+      const result = await buildAnthropicMessage(message);
+
+      expect(result!.content).toEqual([
+        { text: 'fix:', type: 'text' },
+        {
+          id: 'call_array',
+          input: { content: 'a' },
+          name: 'writeLocalFile',
+          type: 'tool_use',
+        },
+      ]);
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('recovered from array'),
+        expect.objectContaining({
+          arrayLength: 2,
+          id: 'call_array',
+          name: 'writeLocalFile',
+        }),
+      );
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('falls back to {} when arguments parse to an empty array', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const message: OpenAIChatMessage = {
+        content: '',
+        role: 'assistant',
+        tool_calls: [
+          {
+            id: 'call_empty_array',
+            type: 'function',
+            function: { name: 'noop', arguments: '[]' },
+          },
+        ],
+      };
+
+      const result = await buildAnthropicMessage(message);
+
+      expect(result!.content).toEqual([
+        { id: 'call_empty_array', input: {}, name: 'noop', type: 'tool_use' },
+      ]);
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('fallback to {}'),
+        expect.objectContaining({ id: 'call_empty_array', parsedType: 'array' }),
+      );
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('warns and falls back to empty input when tool_call arguments parse to null', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const message: OpenAIChatMessage = {
+        content: '',
+        role: 'assistant',
+        tool_calls: [
+          {
+            id: 'call_null',
+            type: 'function',
+            function: { name: 'noop', arguments: 'null' },
+          },
+        ],
+      };
+
+      const result = await buildAnthropicMessage(message);
+
+      expect(result!.content).toEqual([
+        { id: 'call_null', input: {}, name: 'noop', type: 'tool_use' },
+      ]);
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('tool_use.input fallback to {}'),
+        expect.objectContaining({ id: 'call_null', parsedType: 'null' }),
+      );
+      consoleWarnSpy.mockRestore();
+    });
+
     it('should correctly convert function message', async () => {
       const message: OpenAIChatMessage = {
         content: 'def hello(name):\n  return f"Hello {name}"',

@@ -51,7 +51,7 @@ vi.mock('@/features/Conversation', () => ({
       ))}
     </div>
   ),
-  MessageItem: (props: { defaultWorkflowExpanded?: boolean; id: string }) => {
+  MessageItem: (props: { defaultWorkflowExpandLevel?: string; id: string }) => {
     messageItemSpy(props);
 
     return <div data-testid={`message-item-${props.id}`}>{props.id}</div>;
@@ -117,6 +117,7 @@ describe('AgentOnboardingConversation', () => {
       expect.objectContaining({
         allowExpand: false,
         leftActions: [],
+        rightActions: [],
         showRuntimeConfig: false,
       }),
     );
@@ -145,7 +146,7 @@ describe('AgentOnboardingConversation', () => {
 
     expect(messageItemSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        defaultWorkflowExpanded: false,
+        defaultWorkflowExpandLevel: 'collapsed',
       }),
     );
   });

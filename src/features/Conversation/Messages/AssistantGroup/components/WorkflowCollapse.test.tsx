@@ -17,16 +17,51 @@ vi.mock('@lobehub/ui', () => ({
       {children}
     </div>
   ),
-  AccordionItem: ({ children, title }: { children?: ReactNode; title?: ReactNode }) => (
+  AccordionItem: ({
+    action,
+    children,
+    title,
+  }: {
+    action?: ReactNode;
+    children?: ReactNode;
+    title?: ReactNode;
+  }) => (
     <div>
       <div>{title}</div>
+      <div>{action}</div>
       <div>{children}</div>
     </div>
+  ),
+  // Needs to resolve to a `button` with an accessible name that matches the
+  // `title` prop so the tests' `getByRole('button', { name: 'Expand fully' })`
+  // assertions can find the expand toggle.
+  ActionIcon: ({
+    icon: IconComponent,
+    onClick,
+    title,
+  }: {
+    icon?: ComponentType;
+    onClick?: (e: unknown) => void;
+    title?: string;
+  }) => (
+    <button aria-label={title} type="button" onClick={onClick}>
+      {IconComponent ? <IconComponent /> : null}
+    </button>
   ),
   Block: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
   Flexbox: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
   Icon: ({ icon: IconComponent }: { icon?: ComponentType }) =>
-    IconComponent ? <IconComponent /> : <div />,
+    IconComponent ? (
+      <div
+        data-icon={IconComponent.displayName || IconComponent.name || 'unknown'}
+        data-testid="icon"
+      >
+        <IconComponent />
+      </div>
+    ) : (
+      <div />
+    ),
+  ShikiLobeTheme: {},
   Text: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
 }));
 
@@ -35,6 +70,9 @@ vi.mock('motion/react', () => ({
   m: {
     div: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => (
       <div {...props}>{children}</div>
+    ),
+    span: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => (
+      <span {...props}>{children}</span>
     ),
   },
 }));
@@ -45,6 +83,8 @@ vi.mock('react-i18next', () => ({
       (
         ({
           'workflow.awaitingConfirmation': 'Awaiting your confirmation',
+          'workflow.collapse': 'Collapse',
+          'workflow.expandFull': 'Expand fully',
           'workflow.working': 'Working...',
         }) as Record<string, string>
       )[key] ||
@@ -72,6 +112,7 @@ vi.mock('@/styles', () => ({
 
 vi.mock('../../../store', () => ({
   messageStateSelectors: {
+    isAssistantGroupItemGenerating: () => () => mockIsGenerating,
     isMessageGenerating: () => () => mockIsGenerating,
   },
   useConversationStore: (selector: (state: unknown) => unknown) => selector({}),
@@ -114,16 +155,54 @@ describe('WorkflowCollapse', () => {
     expect(getExpandedKeys()).toBe('["workflow"]');
   });
 
-  it('respects defaultStreamingExpanded={false} while streaming', () => {
+  it("respects defaultWorkflowExpandLevel='collapsed' while streaming", () => {
     render(
       <WorkflowCollapse
         assistantMessageId="msg-1"
         blocks={makeBlocks()}
-        defaultStreamingExpanded={false}
+        defaultWorkflowExpandLevel="collapsed"
       />,
     );
 
     expect(getExpandedKeys()).toBe('[]');
+  });
+
+  it("respects defaultWorkflowExpandLevel='full' after completion", () => {
+    mockIsGenerating = false;
+    render(
+      <WorkflowCollapse
+        assistantMessageId="msg-1"
+        blocks={makeBlocks({ result: { content: 'ok' } })}
+        defaultWorkflowExpandLevel="full"
+      />,
+    );
+
+    expect(getExpandedKeys()).toBe('["workflow"]');
+    expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
+  });
+
+  it("keeps defaultWorkflowExpandLevel='full' across streaming→complete transition", () => {
+    const { rerender } = render(
+      <WorkflowCollapse
+        assistantMessageId="msg-1"
+        blocks={makeBlocks()}
+        defaultWorkflowExpandLevel="full"
+      />,
+    );
+
+    expect(getExpandedKeys()).toBe('["workflow"]');
+
+    mockIsGenerating = false;
+    rerender(
+      <WorkflowCollapse
+        assistantMessageId="msg-1"
+        blocks={makeBlocks({ result: { content: 'ok' } })}
+        defaultWorkflowExpandLevel="full"
+      />,
+    );
+
+    expect(getExpandedKeys()).toBe('["workflow"]');
+    expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
   });
 
   it('auto expands and switches the header when confirmation is pending', async () => {
@@ -177,5 +256,153 @@ describe('WorkflowCollapse', () => {
     });
 
     expect(screen.getByText('(4s)')).toBeInTheDocument();
+  });
+
+  it('cycles expand levels via the toggle button', () => {
+    render(<WorkflowCollapse assistantMessageId="msg-1" blocks={makeBlocks()} />);
+
+    const toggleButton = screen.getByRole('button', { name: 'Expand fully' });
+    expect(getExpandedKeys()).toBe('["workflow"]');
+
+    act(() => {
+      toggleButton.click();
+    });
+
+    expect(getExpandedKeys()).toBe('["workflow"]');
+    expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
+
+    act(() => {
+      screen.getByRole('button', { name: 'Collapse' }).click();
+    });
+
+    expect(getExpandedKeys()).toBe('["workflow"]');
+    expect(screen.getByRole('button', { name: 'Expand fully' })).toBeInTheDocument();
+  });
+
+  it('expands to semi when accordion header is clicked from collapsed', () => {
+    render(
+      <WorkflowCollapse
+        assistantMessageId="msg-1"
+        blocks={makeBlocks()}
+        defaultWorkflowExpandLevel="collapsed"
+      />,
+    );
+
+    expect(getExpandedKeys()).toBe('[]');
+    expect(screen.queryByRole('button', { name: 'Expand fully' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Collapse' })).not.toBeInTheDocument();
+  });
+
+  it('collapses to collapsed when accordion header is clicked from full', () => {
+    const { rerender } = render(
+      <WorkflowCollapse assistantMessageId="msg-1" blocks={makeBlocks()} />,
+    );
+
+    act(() => {
+      screen.getByRole('button', { name: 'Expand fully' }).click();
+    });
+
+    expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
+
+    mockIsGenerating = false;
+    rerender(<WorkflowCollapse assistantMessageId="msg-1" blocks={makeBlocks()} />);
+
+    expect(getExpandedKeys()).toBe('["workflow"]');
+  });
+
+  it('shows green check when all tools succeed after completion', () => {
+    mockIsGenerating = false;
+    const blocks: AssistantContentBlock[] = [
+      {
+        content: '',
+        id: 'block-1',
+        tools: [
+          {
+            apiName: 'search',
+            arguments: '{}',
+            id: 'tool-1',
+            identifier: 'search',
+            type: 'builtin',
+            result: { content: 'ok' },
+          } as any,
+          {
+            apiName: 'calculate',
+            arguments: '{}',
+            id: 'tool-2',
+            identifier: 'calculate',
+            type: 'builtin',
+            result: { content: '42' },
+          } as any,
+        ],
+      } as AssistantContentBlock,
+    ];
+
+    render(<WorkflowCollapse assistantMessageId="msg-1" blocks={blocks} />);
+    const icon = screen.getByTestId('icon');
+    expect(icon).toHaveAttribute('data-icon', 'Check');
+  });
+
+  it('shows yellow warning when some tools fail after completion', () => {
+    mockIsGenerating = false;
+    const blocks: AssistantContentBlock[] = [
+      {
+        content: '',
+        id: 'block-1',
+        tools: [
+          {
+            apiName: 'search',
+            arguments: '{}',
+            id: 'tool-1',
+            identifier: 'search',
+            type: 'builtin',
+            result: { content: 'ok' },
+          } as any,
+          {
+            apiName: 'calculate',
+            arguments: '{}',
+            id: 'tool-2',
+            identifier: 'calculate',
+            type: 'builtin',
+            result: { content: null, error: { message: 'bad' } },
+          } as any,
+        ],
+      } as AssistantContentBlock,
+    ];
+
+    render(<WorkflowCollapse assistantMessageId="msg-1" blocks={blocks} />);
+    const icon = screen.getByTestId('icon');
+    expect(icon).toHaveAttribute('data-icon', 'TriangleAlert');
+  });
+
+  it('shows red x when all tools fail after completion', () => {
+    mockIsGenerating = false;
+    const blocks: AssistantContentBlock[] = [
+      {
+        content: '',
+        id: 'block-1',
+        tools: [
+          {
+            apiName: 'search',
+            arguments: '{}',
+            id: 'tool-1',
+            identifier: 'search',
+            type: 'builtin',
+            result: { content: null, error: { message: 'bad' } },
+          } as any,
+          {
+            apiName: 'calculate',
+            arguments: '{}',
+            id: 'tool-2',
+            identifier: 'calculate',
+            type: 'builtin',
+            result: { content: null, error: { message: 'worse' } },
+          } as any,
+        ],
+      } as AssistantContentBlock,
+    ];
+
+    render(<WorkflowCollapse assistantMessageId="msg-1" blocks={blocks} />);
+    const icon = screen.getByTestId('icon');
+    expect(icon).toHaveAttribute('data-icon', 'X');
   });
 });

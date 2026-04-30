@@ -1,7 +1,7 @@
 // Disable the auto sort key eslint rule to make the code more logic and readable
 import { createCallAgentManifest } from '@lobechat/builtin-tool-agent-management';
 import { ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
-import { LOADING_FLAT } from '@lobechat/const';
+import { isDesktop, LOADING_FLAT } from '@lobechat/const';
 import { formatSelectedSkillsContext, formatSelectedToolsContext } from '@lobechat/context-engine';
 import { chainCompressContext } from '@lobechat/prompts';
 import {
@@ -11,21 +11,28 @@ import {
   type ConversationContext,
   type SendMessageParams,
   type SendMessageServerResponse,
+  type UIChatMessage,
 } from '@lobechat/types';
 import { nanoid } from '@lobechat/utils';
 import { TRPCClientError } from '@trpc/client';
 import { t } from 'i18next';
 
 import { markUserValidAction } from '@/business/client/markUserValidAction';
+import { message as antdMessage } from '@/components/AntdStaticMethods';
 import { aiChatService } from '@/services/aiChat';
 import { chatService } from '@/services/chat';
 import { resolveSelectedSkillsWithContent } from '@/services/chat/mecha/skillPreload';
 import { resolveSelectedToolsWithContent } from '@/services/chat/mecha/toolPreload';
 import { messageService } from '@/services/message';
 import { getAgentStoreState } from '@/store/agent';
-import { agentSelectors } from '@/store/agent/selectors';
+import { agentByIdSelectors, agentSelectors } from '@/store/agent/selectors';
 import { agentGroupByIdSelectors, getChatGroupStoreState } from '@/store/agentGroup';
+import { resolveHeteroResume } from '@/store/chat/slices/aiChat/actions/heteroResume';
 import { type ChatStore } from '@/store/chat/store';
+import {
+  mergeAgentRuntimeInitialContexts,
+  resolveActiveTopicDocumentInitialContext,
+} from '@/store/chat/utils/activeTopicDocumentContext';
 import {
   createPendingCompressedGroup,
   getCompressionCandidateMessageIds,
@@ -39,6 +46,7 @@ import { useUserMemoryStore } from '@/store/userMemory';
 
 import { dbMessageSelectors, displayMessageSelectors, topicSelectors } from '../../../selectors';
 import { messageMapKey } from '../../../utils/messageMapKey';
+import { AI_RUNTIME_OPERATION_TYPES } from '../../operation/types';
 import {
   type CommandSendOverrides,
   hasNonActionContent,
@@ -57,6 +65,15 @@ export interface SendMessageWithContextParams extends SendMessageParams {
    * Contains sessionId, topicId, and threadId
    */
   context: ConversationContext;
+  /**
+   * Called as soon as the backend reports a newly created topic id, so callers
+   * with an isolated topic scope (e.g. Task Manager) can switch their UI to the
+   * new topic while the AI response is still streaming.
+   *
+   * Only invoked when `context.isolatedTopic` is true; otherwise the store's
+   * own `switchTopic` handles the transition on the global chat store.
+   */
+  onTopicCreated?: (topicId: string) => void | Promise<void>;
 }
 
 /**
@@ -67,6 +84,8 @@ export interface SendMessageResult {
   assistantMessageId: string;
   /** The created thread ID (if a new thread was created) */
   createdThreadId?: string;
+  /** The created topic ID (if a new topic was created in this call) */
+  createdTopicId?: string;
   /** The created user message ID */
   userMessageId: string;
 }
@@ -108,6 +127,7 @@ export class ConversationLifecycleActionImpl {
     messages: inputMessages,
     parentId: inputParentId,
     pageSelections,
+    onTopicCreated,
   }: SendMessageWithContextParams): Promise<SendMessageResult | undefined> => {
     let editorData = inputEditorData;
     const { internal_execAgentRuntime, mainInputEditor } = this.#get();
@@ -215,13 +235,16 @@ export class ConversationLifecycleActionImpl {
     if (!message && !hasFile) return;
 
     // ━━━ Message Queue: enqueue if agent is currently running ━━━
-    // Check if there's a running execAgentRuntime operation in the current context.
-    // If so, enqueue the message instead of starting a new operation.
+    // Check if there's a running agent-runtime operation in the current context.
+    // If so, enqueue the message instead of starting a new operation. Covers all
+    // three runtime paths (`AI_RUNTIME_OPERATION_TYPES`) — Client, heterogeneous
+    // agent / CC, and Gateway — so a follow-up send never spawns a parallel
+    // `claude` process or a second server-side run.
     const currentContextKey = messageMapKey(operationContext);
     const contextOpIds = this.#get().operationsByContext[currentContextKey] || [];
     const runningAgentOp = contextOpIds
       .map((id) => this.#get().operations[id])
-      .find((op) => op && op.type === 'execAgentRuntime' && op.status === 'running');
+      .find((op) => op && AI_RUNTIME_OPERATION_TYPES.includes(op.type) && op.status === 'running');
 
     if (runningAgentOp) {
       this.#get().enqueueMessage(
@@ -340,6 +363,175 @@ export class ConversationLifecycleActionImpl {
       inputSendErrorMsg: undefined,
     });
 
+    // ── External agent mode: delegate to heterogeneous agent CLI (desktop only) ──
+    // Per-agent heterogeneousProvider config takes priority over the global gateway mode.
+    const agentConfig = agentSelectors.getAgentConfigById(agentId)(getAgentStoreState());
+    const heterogeneousProvider = agentConfig?.agencyConfig?.heterogeneousProvider;
+    if (isDesktop && heterogeneousProvider) {
+      // Resolve cwd up-front so the new topic is bound to a project at
+      // creation time. Otherwise the row stays NULL until the post-execution
+      // metadata write — which never lands on cancel/error and meanwhile
+      // makes By-Project grouping miss the topic and `--resume` unsafe.
+      //
+      // Priority: topic-level cwd (once a topic is bound to a project) wins
+      // over the agent-level default. Without this, a topic pinned to dir A
+      // would silently execute under the agent's current default dir B and
+      // lose resume.
+      const existingTopic = operationContext.topicId
+        ? topicSelectors.getTopicById(operationContext.topicId)(this.#get())
+        : undefined;
+      const agentWorkingDirectory =
+        agentByIdSelectors.getAgentWorkingDirectoryById(agentId)(getAgentStoreState());
+      const workingDirectory = existingTopic?.metadata?.workingDirectory || agentWorkingDirectory;
+
+      // Persist messages to DB first (same as client mode)
+      let heteroData: SendMessageServerResponse | undefined;
+      try {
+        heteroData = await aiChatService.sendMessageInServer(
+          {
+            agentId: operationContext.agentId,
+            groupId: operationContext.groupId ?? undefined,
+            // External CLIs own model selection and may reroute independently
+            // from the agent's requested model. Persist only the runtime
+            // provider up front; the adapter backfills the actual model later
+            // if the CLI reports it.
+            newAssistantMessage: { provider: heterogeneousProvider.type },
+            newTopic: !operationContext.topicId
+              ? {
+                  metadata: workingDirectory ? { workingDirectory } : undefined,
+                  title: message.slice(0, 20) || t('defaultTitle', { ns: 'topic' }),
+                  topicMessageIds: messages.map((m) => m.id),
+                }
+              : undefined,
+            newUserMessage: {
+              content: message,
+              editorData,
+              files: fileIdList,
+              pageSelections,
+              parentId,
+            },
+            threadId: operationContext.threadId ?? undefined,
+            topicId: operationContext.topicId ?? undefined,
+          },
+          abortController,
+        );
+      } catch (e) {
+        console.error('[HeterogeneousAgent] Failed to persist messages:', e);
+        this.#get().failOperation(operationId, {
+          message: e instanceof Error ? e.message : 'Unknown error',
+          type: 'HeterogeneousAgentError',
+        });
+        return;
+      }
+
+      if (!heteroData) return;
+
+      // Update context with server-created topicId
+      const heteroContext = {
+        ...operationContext,
+        topicId: heteroData.topicId ?? operationContext.topicId,
+      };
+
+      // Replace optimistic messages with persisted ones
+      this.#get().replaceMessages(heteroData.messages, {
+        action: 'sendMessage/serverResponse',
+        context: heteroContext,
+      });
+
+      // Handle new topic creation
+      if (heteroData.isCreateNewTopic && heteroData.topicId) {
+        if (heteroData.topics) {
+          const pageSize = systemStatusSelectors.topicPageSize(useGlobalStore.getState());
+          this.#get().internal_updateTopics(operationContext.agentId, {
+            groupId: operationContext.groupId,
+            items: heteroData.topics.items,
+            pageSize,
+            total: heteroData.topics.total,
+          });
+        }
+        await this.#get().switchTopic(heteroData.topicId, {
+          clearNewKey: true,
+          skipRefreshMessage: true,
+        });
+      }
+
+      // Clean up temp messages
+      this.#get().internal_dispatchMessage(
+        { ids: [tempId, tempAssistantId], type: 'deleteMessages' },
+        { operationId },
+      );
+
+      // Complete sendMessage operation, start ACP execution as child operation
+      this.#get().completeOperation(operationId);
+
+      // Clear editor temp state — the user's message is already persisted, so
+      // a later Stop click must NOT restore it into the input (would feel like
+      // the app re-sent the message). Client/Gateway paths clear this at
+      // line 684-686 after `sendMessageInServer` resolves, but the hetero
+      // branch returns early (line 498) and never reaches that clear.
+      this.#get().updateOperationMetadata(operationId, { inputEditorTempState: null });
+
+      if (heteroData.topicId) this.#get().internal_updateTopicLoading(heteroData.topicId, true);
+
+      // Start heterogeneous agent execution
+      const { operationId: heteroOpId } = this.#get().startOperation({
+        context: heteroContext,
+        label: 'Heterogeneous Agent Execution',
+        metadata: { heterogeneousType: heterogeneousProvider.type },
+        parentOperationId: operationId,
+        type: 'execHeterogeneousAgent',
+      });
+
+      this.#get().associateMessageWithOperation(heteroData.assistantMessageId, heteroOpId);
+
+      try {
+        const { executeHeterogeneousAgent } = await import('./heterogeneousAgentExecutor');
+        // Extract imageList from the persisted user message (chatUploadFileList
+        // may already be cleared by this point, so we read from DB instead)
+        const userMsg = heteroData.messages.find((m: any) => m.id === heteroData.userMessageId);
+        const persistedImageList = userMsg?.imageList;
+
+        // Read heterogeneous-agent session id from topic metadata for multi-turn
+        // resume. `resolveHeteroResume` drops the sessionId when the saved cwd
+        // doesn't match the current one, so CC doesn't emit
+        // "No conversation found with session ID".
+        const topic = heteroContext.topicId
+          ? topicSelectors.getTopicById(heteroContext.topicId)(this.#get())
+          : undefined;
+        const { cwdChanged, resumeSessionId } = resolveHeteroResume(
+          topic?.metadata,
+          workingDirectory,
+        );
+        if (cwdChanged) {
+          antdMessage.info(t('heteroAgent.resumeReset.cwdChanged', { ns: 'chat' }));
+        }
+
+        await executeHeterogeneousAgent(() => this.#get(), {
+          assistantMessageId: heteroData.assistantMessageId,
+          context: heteroContext,
+          heterogeneousProvider,
+          imageList: persistedImageList?.length ? persistedImageList : undefined,
+          message,
+          operationId: heteroOpId,
+          resumeSessionId,
+          workingDirectory,
+        });
+      } catch (e) {
+        console.error('[HeterogeneousAgent] Execution failed:', e);
+        this.#get().failOperation(heteroOpId, {
+          message: e instanceof Error ? e.message : 'Unknown error',
+          type: 'HeterogeneousAgentError',
+        });
+      }
+
+      if (heteroData.topicId) this.#get().internal_updateTopicLoading(heteroData.topicId, false);
+
+      return {
+        assistantMessageId: heteroData.assistantMessageId,
+        userMessageId: heteroData.userMessageId,
+      };
+    }
+
     // ── Gateway mode: skip sendMessageInServer, let execAgentTask handle everything ──
     if (this.#get().isGatewayModeEnabled()) {
       this.#get().completeOperation(operationId);
@@ -422,6 +614,7 @@ export class ConversationLifecycleActionImpl {
             ? {
                 topicMessageIds: forceNewTopicFromExisting ? [] : messages.map((m) => m.id),
                 title: message.slice(0, 20) || t('defaultTitle', { ns: 'topic' }),
+                trigger: context.topicTrigger,
               }
             : undefined,
           agentId: operationContext.agentId,
@@ -442,17 +635,24 @@ export class ConversationLifecycleActionImpl {
 
       // refresh the total data
       if (data?.topics) {
-        const pageSize = systemStatusSelectors.topicPageSize(useGlobalStore.getState());
-        this.#get().internal_updateTopics(operationContext.agentId, {
-          groupId: operationContext.groupId,
-          items: data.topics.items,
-          pageSize,
-          total: data.topics.total,
-        });
         finalTopicId = data.topicId;
 
-        // Record the created topicId in metadata (not context)
-        this.#get().updateOperationMetadata(operationId, { createdTopicId: data.topicId });
+        // Skip writing the returned topic list into the main chat's topicDataMap
+        // when the caller owns an isolated topic scope (e.g. Task Manager panel).
+        // Otherwise the newly created isolated-trigger topic would flash in the
+        // main sidebar until the next SWR revalidation filters it out.
+        if (!context.isolatedTopic) {
+          const pageSize = systemStatusSelectors.topicPageSize(useGlobalStore.getState());
+          this.#get().internal_updateTopics(operationContext.agentId, {
+            groupId: operationContext.groupId,
+            items: data.topics.items,
+            pageSize,
+            total: data.topics.total,
+          });
+
+          // Record the created topicId in metadata (not context)
+          this.#get().updateOperationMetadata(operationId, { createdTopicId: data.topicId });
+        }
       } else if (operationContext.topicId) {
         // Optimistically update topic's updatedAt so sidebar re-groups immediately
         this.#get().internal_dispatchTopic({
@@ -482,11 +682,17 @@ export class ConversationLifecycleActionImpl {
       });
 
       if (data.isCreateNewTopic && data.topicId) {
-        // clearNewKey: true ensures the _new key data is cleared after topic creation
-        await this.#get().switchTopic(data.topicId, {
-          clearNewKey: true,
-          skipRefreshMessage: true,
-        });
+        if (context.isolatedTopic) {
+          // Notify the isolated caller immediately so its UI re-subscribes to
+          // the new topic key and picks up the streaming AI response.
+          await onTopicCreated?.(data.topicId);
+        } else {
+          // clearNewKey: true ensures the _new key data is cleared after topic creation
+          await this.#get().switchTopic(data.topicId, {
+            clearNewKey: true,
+            skipRefreshMessage: true,
+          });
+        }
       }
     } catch (e) {
       console.error(e);
@@ -532,10 +738,31 @@ export class ConversationLifecycleActionImpl {
 
     if (data.topicId) this.#get().internal_updateTopicLoading(data.topicId, true);
 
+    // Dev-only fast path: fall back to slicing the first user message instead of calling
+    // the LLM. Keeps chat logs uncluttered while still giving the topic a usable title.
+    // Only honored in non-production builds so a misconfigured prod env can't disable it.
+    const shouldSliceTopicTitle =
+      process.env.NODE_ENV !== 'production' &&
+      process.env.NEXT_PUBLIC_DEV_DISABLE_AUTO_TOPIC === '1';
+
+    const applyTopicTitle = async (topicId: string, messages: UIChatMessage[]) => {
+      if (!shouldSliceTopicTitle) {
+        await this.#get().summaryTopicTitle(topicId, messages);
+        return;
+      }
+
+      const firstUserText = messages.find((m) => m.role === 'user')?.content?.trim() ?? '';
+      const title = firstUserText.slice(0, 30) || 'New Topic';
+      await this.#get().internal_updateTopic(topicId, { title });
+      // summaryTopicTitle would normally clear loading via onLoadingChange; do it manually.
+      this.#get().internal_updateTopicLoading(topicId, false);
+      console.info('[dev] sliced topic title (NEXT_PUBLIC_DEV_DISABLE_AUTO_TOPIC=1):', title);
+    };
+
     const summaryTitle = async () => {
       // check activeTopic and then auto update topic title
       if (data.isCreateNewTopic) {
-        await this.#get().summaryTopicTitle(data.topicId, data.messages);
+        await applyTopicTitle(data.topicId, data.messages);
         return;
       }
 
@@ -548,7 +775,7 @@ export class ConversationLifecycleActionImpl {
           .getDisplayMessagesByKey(messageMapKey({ agentId, topicId: topic.id }))(this.#get())
           .filter((item) => item.id !== data.assistantMessageId);
 
-        await this.#get().summaryTopicTitle(topic.id, chats);
+        await applyTopicTitle(topic.id, chats);
       }
     };
 
@@ -618,6 +845,8 @@ export class ConversationLifecycleActionImpl {
         // When agents are @mentioned, inject a slim callAgent-only manifest
         // so the AI can delegate directly without activating the full agent-management tool
         const injectedManifests = hasMentionedAgents ? [createCallAgentManifest()] : undefined;
+        const activeTopicDocumentInitialContext =
+          await resolveActiveTopicDocumentInitialContext(execContext);
 
         const hasInitialContext = hasMentionedAgents || !!injectedManifests;
 
@@ -635,10 +864,14 @@ export class ConversationLifecycleActionImpl {
               phase: 'init' as const,
             }
           : undefined;
+        const mergedAgentRuntimeInitialContext = mergeAgentRuntimeInitialContexts(
+          activeTopicDocumentInitialContext,
+          agentRuntimeInitialContext,
+        );
 
         await internal_execAgentRuntime({
           context: execContext,
-          initialContext: agentRuntimeInitialContext,
+          initialContext: mergedAgentRuntimeInitialContext,
           messages: displayMessages,
           parentMessageId: data.assistantMessageId,
           parentMessageType: 'assistant',
@@ -666,6 +899,7 @@ export class ConversationLifecycleActionImpl {
     return {
       assistantMessageId: data.assistantMessageId,
       createdThreadId: data.createdThreadId,
+      createdTopicId: data.isCreateNewTopic ? data.topicId : undefined,
       userMessageId: data.userMessageId,
     };
   };

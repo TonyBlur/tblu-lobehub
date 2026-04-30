@@ -37,9 +37,8 @@ export const areWorkflowToolsComplete = (tools: ChatToolPayloadWithResult[]): bo
   return collapsible.every((t) => t.result != null && t.result.content !== LOADING_FLAT);
 };
 
-/** Heuristic: prose-only block after last tool looks like a long deliverable (not a one-line step). */
-export const scorePostToolBlockAsFinalAnswer = (block: AssistantContentBlock): number => {
-  if (block.tools && block.tools.length > 0) return 0;
+/** Heuristic: visible content already looks like a deliverable, not a one-line status step. */
+export const scoreBlockContentAsAnswerLike = (block: AssistantContentBlock): number => {
   const raw = (block.content ?? '').trim();
   if (!raw || raw === LOADING_FLAT) return 0;
 
@@ -64,6 +63,13 @@ export const scorePostToolBlockAsFinalAnswer = (block: AssistantContentBlock): n
   if (punctCount >= POST_TOOL_ANSWER_PUNCT_MIN_COUNT) score += POST_TOOL_ANSWER_PUNCT_SCORE;
 
   return score;
+};
+
+/** Heuristic: prose-only block after last tool looks like a long deliverable (not a one-line step). */
+export const scorePostToolBlockAsFinalAnswer = (block: AssistantContentBlock): number => {
+  if (block.tools && block.tools.length > 0) return 0;
+
+  return scoreBlockContentAsAnswerLike(block);
 };
 
 /**
@@ -124,6 +130,23 @@ export const getToolSummaryText = (tools: ChatToolPayloadWithResult[]): string =
 
 export const hasToolError = (tools: ChatToolPayloadWithResult[]): boolean => {
   return tools.some((t) => t.result?.error);
+};
+
+export const getWorkflowCompletionStatus = (
+  tools: ChatToolPayloadWithResult[],
+): 'success' | 'partial' | 'error' => {
+  const collapsible = tools.filter((t) => t.intervention?.status !== 'pending');
+  if (collapsible.length === 0) return 'success';
+
+  const completed = collapsible.filter(
+    (t) => t.result != null && t.result.content !== LOADING_FLAT,
+  );
+  if (completed.length === 0) return 'success';
+
+  const errorCount = completed.filter((t) => t.result?.error).length;
+  if (errorCount === 0) return 'success';
+  if (errorCount === completed.length) return 'error';
+  return 'partial';
 };
 
 export const getToolFirstDetail = (tool: ChatToolPayloadWithResult): string => {
@@ -361,6 +384,8 @@ export const formatReasoningDuration = (ms: number): string => {
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 };
 
+const WORKFLOW_SUMMARY_TOP_N = 3;
+
 export const getWorkflowSummaryText = (blocks: AssistantContentBlock[]): string => {
   const tools = blocks.flatMap((b) => b.tools ?? []);
 
@@ -372,16 +397,56 @@ export const getWorkflowSummaryText = (blocks: AssistantContentBlock[]): string 
     groups.set(tool.apiName, existing);
   }
 
-  const toolParts: string[] = [];
-  for (const [apiName, { count, errorCount }] of groups) {
-    let part = getToolDisplayName(apiName);
-    if (count > 1) part += ` (${count})`;
-    if (errorCount > 0)
-      part += ` ${t('workflow.failedSuffix', { defaultValue: '(failed)', ns: 'chat' })}`;
-    toolParts.push(part);
-  }
+  const entries = [...groups.entries()];
+  const totalKinds = entries.length;
+  const totalCalls = entries.reduce((sum, [, { count }]) => sum + count, 0);
+  const totalErrors = entries.reduce((sum, [, { errorCount }]) => sum + errorCount, 0);
 
-  let result = toolParts.join(', ');
+  const formatToolPart = ([apiName, info]: [string, { count: number }]): string => {
+    const name = getToolDisplayName(apiName);
+    return info.count > 1 ? `${name} (${info.count})` : name;
+  };
+
+  // List all kinds when few; truncate to top N (by call count) when many.
+  // "+1 more" reads awkwardly, so we only collapse when there are ≥2 extra kinds beyond top N.
+  const displayedEntries =
+    totalKinds <= WORKFLOW_SUMMARY_TOP_N + 1
+      ? entries
+      : [...entries].sort(([, a], [, b]) => b.count - a.count).slice(0, WORKFLOW_SUMMARY_TOP_N);
+
+  const segments: string[] = [displayedEntries.map(formatToolPart).join(', ')];
+
+  // Only show "N tool kinds" when the list is truncated — otherwise it duplicates the visible list.
+  if (displayedEntries.length < totalKinds) {
+    segments.push(
+      t('workflow.summaryMoreTools', {
+        count: totalKinds,
+        defaultValue: '{{count}} tool kinds',
+        ns: 'chat',
+      }),
+    );
+  }
+  // Only show total calls when a tool was called more than once — otherwise totalCalls
+  // equals totalKinds and the suffix duplicates info already in the list.
+  if (totalKinds > 1 && totalCalls > totalKinds) {
+    segments.push(
+      t('workflow.summaryTotalCalls', {
+        count: totalCalls,
+        defaultValue: '{{count}} calls total',
+        ns: 'chat',
+      }),
+    );
+  }
+  if (totalErrors > 0) {
+    segments.push(
+      t('workflow.summaryFailed', {
+        count: totalErrors,
+        defaultValue: '{{count}} failed',
+        ns: 'chat',
+      }),
+    );
+  }
+  let result = segments.join(' · ');
 
   const totalReasoningMs = blocks.reduce((sum, b) => sum + (b.reasoning?.duration ?? 0), 0);
   if (totalReasoningMs > 0) {

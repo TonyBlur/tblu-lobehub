@@ -19,6 +19,54 @@ import { nanoid } from '@/utils/uuid';
 
 const log = debug('lobe-server:ai-agent-router');
 
+const extractTaskErrorMessage = (error: unknown): string | undefined => {
+  if (!error || typeof error !== 'object') return undefined;
+
+  const taskError = error as Record<string, any>;
+  const candidates = [
+    taskError.body?.error?.message,
+    taskError.body?.message,
+    taskError.error?.error?.message,
+    taskError.error?.message,
+    taskError.message,
+    taskError.type,
+    taskError.errorType,
+    taskError.name,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate !== '[object Object]' && candidate !== 'error') {
+      return candidate;
+    }
+  }
+
+  return undefined;
+};
+
+const formatTaskError = (error: unknown): Record<string, unknown> | undefined => {
+  if (!error) return undefined;
+
+  if (error instanceof Error) {
+    return {
+      message: error.message,
+      name: error.name,
+    };
+  }
+
+  if (typeof error === 'string') {
+    return { message: error };
+  }
+
+  if (typeof error !== 'object') {
+    return { message: String(error) };
+  }
+
+  const taskError = error as Record<string, unknown>;
+  const message = extractTaskErrorMessage(error);
+
+  return message ? { ...taskError, message } : taskError;
+};
+
 // Zod schemas for agent operation
 const CreateAgentOperationSchema = z.object({
   agentConfig: z.record(z.any()).optional().default({}),
@@ -89,6 +137,7 @@ const ExecAgentSchema = z
     /** Application context for message storage */
     appContext: z
       .object({
+        documentId: z.string().optional().nullable(),
         groupId: z.string().optional().nullable(),
         scope: z.string().optional().nullable(),
         sessionId: z.string().optional(),
@@ -935,13 +984,8 @@ export const aiAgentRouter = router({
 
             log('getSubAgentTaskStatus: marked thread %s as completed', threadId);
           } else if (realtimeStatus.hasError || redisState.status === 'error') {
-            // Format error properly to avoid [object Object] in serialization
-            const errorObj = redisState.error as any;
-            const formattedError = errorObj
-              ? typeof errorObj === 'object' && 'message' in errorObj
-                ? { message: errorObj.message, ...errorObj }
-                : { message: String(errorObj) }
-              : undefined;
+            // Normalize nested runtime errors so task metadata keeps a readable message.
+            const formattedError = formatTaskError(redisState.error);
 
             updatedMetadata.error = formattedError;
             updatedMetadata.completedAt = new Date().toISOString();
@@ -982,7 +1026,7 @@ export const aiAgentRouter = router({
       const updatedTaskStatus = threadStatusToTaskStatus[updatedStatus] || 'processing';
 
       if (updatedTaskStatus === 'failed') {
-        console.error('getSubAgentTaskStatus: failed task metadata for thread %s: %O', threadId, {
+        log('getSubAgentTaskStatus: returning failed task status for thread %s: %O', threadId, {
           updatedMetadata,
           error: updatedMetadata?.error,
           updatedStatus,

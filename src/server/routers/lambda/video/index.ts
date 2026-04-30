@@ -1,5 +1,10 @@
 import { randomBytes } from 'node:crypto';
 
+import {
+  buildMappedBusinessModelFields,
+  resolveBusinessModelMapping,
+} from '@lobechat/business-model-runtime';
+import { RequestTrigger } from '@lobechat/types';
 import debug from 'debug';
 import { and, eq } from 'drizzle-orm';
 import { after } from 'next/server';
@@ -67,6 +72,7 @@ export const videoRouter = router({
   createVideo: videoProcedure.input(createVideoInputSchema).mutation(async ({ input, ctx }) => {
     const { userId, serverDB, asyncTaskModel, fileService } = ctx;
     const { generationTopicId, provider, model, params } = input;
+    const { resolvedModelId } = await resolveBusinessModelMapping(provider, model);
 
     log('Starting video creation process, input: %O', input);
 
@@ -212,11 +218,14 @@ export const videoRouter = router({
       const callbackUrl = `${callbackBaseUrl}/api/webhooks/video/${provider}?token=${webhookToken}`;
       log('Using callback URL: %s', callbackUrl);
 
-      const response = await modelRuntime.createVideo({
-        callbackUrl,
-        model,
-        params: generationParams,
-      });
+      const response = await modelRuntime.createVideo(
+        {
+          callbackUrl,
+          model: resolvedModelId,
+          params: generationParams,
+        },
+        { metadata: { trigger: RequestTrigger.Video } },
+      );
 
       log('Video task submitted successfully, inferenceId: %s', response?.inferenceId);
 
@@ -289,10 +298,14 @@ export const videoRouter = router({
             metadata: {
               asyncTaskId,
               generationBatchId: createdBatch.id,
-              modelId: model,
               topicId: generationTopicId,
+              ...buildMappedBusinessModelFields({
+                provider,
+                requestedModelId: resolvedModelId === model ? undefined : model,
+                resolvedModelId,
+              }),
             },
-            model,
+            model: resolvedModelId,
             prechargeResult,
             provider,
             userId,

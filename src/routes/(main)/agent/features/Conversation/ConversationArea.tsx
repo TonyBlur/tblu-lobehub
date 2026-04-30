@@ -9,10 +9,12 @@ import ChatMiniMap from '@/features/ChatMiniMap';
 import { ChatList, ConversationProvider, TodoProgress } from '@/features/Conversation';
 import ZenModeToast from '@/features/ZenModeToast';
 import { useOperationState } from '@/hooks/useOperationState';
+import { useAgentStore } from '@/store/agent';
+import { agentSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
-import ChatHydration from './ChatHydration';
+import HeterogeneousChatInput from './HeterogeneousChatInput';
 import MainChatInput from './MainChatInput';
 import MessageFromUrl from './MainChatInput/MessageFromUrl';
 import ThreadHydration from './ThreadHydration';
@@ -39,6 +41,7 @@ const Conversation = memo(() => {
   );
   const replaceMessages = useChatStore((s) => s.replaceMessages);
   const messages = useChatStore((s) => s.dbMessagesMap[chatKey]);
+
   log('contextKey %s: %o', chatKey, messages);
 
   // Get operation state from ChatStore for reactive updates
@@ -46,6 +49,11 @@ const Conversation = memo(() => {
 
   // Get actionsBar config with branching support from ChatStore
   const actionsBarConfig = useActionsBarConfig();
+
+  // Heterogeneous agents (Claude Code, etc.) use a simplified input — their
+  // toolchain/memory/model are managed by the external runtime, so LobeHub's
+  // model/tools/memory/KB/MCP/runtime-mode pickers don't apply.
+  const isHeterogeneousAgent = useAgentStore(agentSelectors.isCurrentAgentHeterogeneous);
 
   // Auto-reconnect to running Gateway operation on topic load
   useGatewayReconnect(context.topicId);
@@ -71,11 +79,13 @@ const Conversation = memo(() => {
           position: 'relative',
         }}
       >
-        <ChatList welcome={<AgentHome />} />
+        <ChatList
+          defaultWorkflowExpandLevel={isHeterogeneousAgent ? { streaming: 'full' } : undefined}
+          welcome={<AgentHome />}
+        />
       </Flexbox>
       <TodoProgress />
-      <MainChatInput />
-      <ChatHydration />
+      {isHeterogeneousAgent ? <HeterogeneousChatInput /> : <MainChatInput />}
       <ThreadHydration />
       <ChatMiniMap />
       <Suspense>

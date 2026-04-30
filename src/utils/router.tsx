@@ -2,7 +2,7 @@
 
 import { ThemeProvider } from '@lobehub/ui';
 import { type ComponentType, type ReactElement } from 'react';
-import { lazy, memo, Suspense, useCallback, useLayoutEffect } from 'react';
+import { lazy, memo, Suspense, useLayoutEffect } from 'react';
 import type { RouteObject } from 'react-router-dom';
 import {
   createBrowserRouter,
@@ -25,6 +25,11 @@ async function importModule<T>(importFn: () => Promise<T>): Promise<T> {
 }
 
 function resolveLazyModule<P>(module: { default: ComponentType<P> } | ComponentType<P>) {
+  if (module == null) {
+    throw new Error(
+      'Dynamic import resolved to undefined. This usually means a chunk failed to load.',
+    );
+  }
   if (typeof module === 'function') {
     return { default: module };
   }
@@ -86,29 +91,13 @@ export function dynamicLayout<P = NonNullable<unknown>>(
   );
 }
 
-/**
- * Error boundary component for React Router
- * Displays an error page and provides a reset function to navigate to a specific path
- *
- * @example
- * import { ErrorBoundary } from '@/utils/dynamicPage';
- *
- * // In router config:
- * {
- *   path: 'chat',
- *   errorElement: <ErrorBoundary resetPath="/chat" />
- * }
- */
 export interface ErrorBoundaryProps {
-  resetPath: string;
+  /** Base path for "back home" on the error screen (defaults to `/`). */
+  resetPath?: string;
 }
 
 export const ErrorBoundary = ({ resetPath }: ErrorBoundaryProps) => {
   const error = useRouteError() as Error;
-  const navigate = useNavigate();
-  const reset = useCallback(() => {
-    navigate(resetPath);
-  }, [navigate, resetPath]);
 
   if (typeof window !== 'undefined' && isChunkLoadError(error)) {
     notifyChunkError();
@@ -116,7 +105,7 @@ export const ErrorBoundary = ({ resetPath }: ErrorBoundaryProps) => {
 
   return (
     <ThemeProvider theme={{ cssVar: { key: 'lobe-vars' } }}>
-      <ErrorCapture error={error} reset={reset} />
+      <ErrorCapture error={error} resetPath={resetPath} />
     </ThemeProvider>
   );
 };
@@ -169,7 +158,7 @@ export function createAppRouter(routes: RouteObject[], options?: CreateAppRouter
       {
         children: routes,
         element: <RouterRoot />,
-        errorElement: <ErrorBoundary resetPath="/" />,
+        errorElement: <ErrorBoundary />,
         path: '/',
       },
     ],
