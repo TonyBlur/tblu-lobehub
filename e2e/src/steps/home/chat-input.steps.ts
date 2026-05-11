@@ -2,7 +2,8 @@ import { After, Given, Then, When } from '@cucumber/cucumber';
 import { expect } from '@playwright/test';
 
 import { llmMockManager } from '../../mocks/llm';
-import { type CustomWorld, WAIT_TIMEOUT } from '../../support/world';
+import type { CustomWorld } from '../../support/world';
+import { WAIT_TIMEOUT } from '../../support/world';
 
 const COLD_ROUTE_SCRIPT_DELAY = 2500;
 
@@ -10,6 +11,30 @@ const delay = (ms: number) =>
   new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+
+const focusHomeChatInput = async (world: CustomWorld): Promise<void> => {
+  const candidates = [
+    world.page.locator('[data-testid="chat-input"] textarea'),
+    world.page.locator('[data-testid="chat-input"] [contenteditable="true"]'),
+    world.page.getByRole('textbox'),
+    world.page.locator('[data-testid="chat-input"]'),
+  ];
+
+  for (const locator of candidates) {
+    const count = await locator.count();
+
+    for (let index = 0; index < count; index += 1) {
+      const item = locator.nth(index);
+      const visible = await item.isVisible().catch(() => false);
+      if (!visible) continue;
+
+      await item.click({ force: true });
+      return;
+    }
+  }
+
+  throw new Error('Could not find a visible Home chat input to focus');
+};
 
 Given(
   '用户在冷启动 Home 页面并延迟 Agent 路由加载',
@@ -53,6 +78,19 @@ Given(
     await expect(chatInputContainer).toBeVisible({ timeout: WAIT_TIMEOUT });
 
     console.log('   ✅ 已进入冷启动 Home 页面');
+  },
+);
+
+When(
+  '用户在输入框中输入 {string}',
+  { timeout: 30_000 },
+  async function (this: CustomWorld, text: string) {
+    console.log(`   📍 Step: 在 Home 输入框中输入 "${text}"...`);
+
+    await focusHomeChatInput(this);
+    await this.page.keyboard.type(text, { delay: 20 });
+
+    console.log('   ✅ 已输入 Home 默认消息');
   },
 );
 

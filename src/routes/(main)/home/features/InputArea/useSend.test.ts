@@ -35,16 +35,31 @@ const fileState = vi.hoisted(() => ({
 }));
 
 const homeState = vi.hoisted(() => ({
+  agentGroups: [],
   homeInputLoading: false,
   inputActiveMode: null,
+  isAgentListInit: true,
+  pinnedAgents: [],
   sendAsAgent: vi.fn(),
   sendAsGroup: vi.fn(),
   sendAsResearch: vi.fn(),
   sendAsWrite: vi.fn(),
+  ungroupedAgents: [],
 }));
 
 const agentState = vi.hoisted(() => ({
+  agentMap: {
+    agt_inbox: {},
+  },
   inboxAgentId: 'agt_inbox',
+  internal_dispatchAgentMap: vi.fn(),
+}));
+
+const globalState = vi.hoisted(() => ({
+  systemStatus: {
+    homeSelectedAgentId: undefined,
+  },
+  updateSystemStatus: vi.fn(),
 }));
 
 vi.mock('@/hooks/useQueryRoute', () => ({
@@ -52,12 +67,27 @@ vi.mock('@/hooks/useQueryRoute', () => ({
 }));
 
 vi.mock('@/store/agent', () => ({
-  useAgentStore: (selector: (state: typeof agentState) => unknown) => selector(agentState),
+  useAgentStore: Object.assign(
+    (selector: (state: typeof agentState) => unknown) => selector(agentState),
+    {
+      getState: () => agentState,
+    },
+  ),
 }));
 
 vi.mock('@/store/agent/selectors', () => ({
   builtinAgentSelectors: {
     inboxAgentId: (state: typeof agentState) => state.inboxAgentId,
+  },
+}));
+
+vi.mock('@/store/global', () => ({
+  useGlobalStore: (selector: (state: typeof globalState) => unknown) => selector(globalState),
+}));
+
+vi.mock('@/store/global/selectors', () => ({
+  systemStatusSelectors: {
+    homeSelectedAgentId: (state: typeof globalState) => state.systemStatus.homeSelectedAgentId,
   },
 }));
 

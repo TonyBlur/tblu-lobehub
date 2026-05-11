@@ -18,7 +18,7 @@ import {
 } from './platforms';
 import { clearReactionState, getReactionState, saveReactionState } from './reactionState';
 import {
-  renderError,
+  renderAgentError,
   renderFinalReply,
   renderStepProgress,
   renderStopped,
@@ -36,6 +36,7 @@ export interface BotCallbackBody {
   duration?: number;
   elapsedMs?: number;
   errorMessage?: string;
+  errorType?: string;
   executionTimeMs?: number;
   /** Hook ID from HookDispatcher (e.g. 'bot-step-progress', 'bot-completion') */
   hookId?: string;
@@ -241,24 +242,18 @@ export class BotCallbackService {
     charLimit?: number,
     canEdit = true,
   ): Promise<void> {
-    const { reason, lastAssistantContent, errorMessage, operationId } = body;
+    const { reason, lastAssistantContent, errorMessage, errorType, operationId } = body;
 
     if (reason === 'error') {
       log(
-        'handleCompletion: agent run failed, operationId=%s, errorMessage=%s',
+        'handleCompletion: agent run failed, operationId=%s, errorType=%s, errorMessage=%s',
         operationId,
+        errorType,
         errorMessage,
       );
-      const errorText = renderError(operationId, replyLocale);
-      try {
-        if (canEdit && progressMessageId) {
-          await messenger.editMessage(progressMessageId, errorText);
-        } else {
-          await messenger.createMessage(errorText);
-        }
-      } catch (error) {
-        log('handleCompletion: failed to send error message: %O', error);
-      }
+      const errorBody = renderAgentError(errorType, operationId, replyLocale);
+      const errorText = client.formatMarkdown?.(errorBody) ?? errorBody;
+      await this.deliverFirstChunk(messenger, progressMessageId, errorText, canEdit);
       return;
     }
 
@@ -272,7 +267,10 @@ export class BotCallbackService {
       return;
     }
 
-    if (!lastAssistantContent) {
+    // `!lastAssistantContent` lets whitespace-only strings ("\n", "  ") through;
+    // those collapse to empty text downstream and get rejected by Telegram as
+    // "message text is empty", silently losing the reply. Trim before testing.
+    if (!lastAssistantContent?.trim()) {
       log('handleCompletion: no lastAssistantContent, skipping');
       return;
     }
@@ -291,20 +289,47 @@ export class BotCallbackService {
     const finalText = client.formatReply?.(formattedBody, stats) ?? formattedBody;
     const chunks = splitMessage(finalText, charLimit);
 
-    try {
-      if (canEdit && progressMessageId) {
-        await messenger.editMessage(progressMessageId, chunks[0]);
-        for (let i = 1; i < chunks.length; i++) {
-          await messenger.createMessage(chunks[i]);
-        }
-      } else {
-        // No progress message to edit or platform doesn't support edit — send all chunks as new messages
-        for (const chunk of chunks) {
-          await messenger.createMessage(chunk);
-        }
+    if (chunks.length === 0) {
+      log('handleCompletion: all chunks empty after formatting, skipping send');
+      return;
+    }
+
+    await this.deliverFirstChunk(messenger, progressMessageId, chunks[0], canEdit);
+    // Each remaining chunk gets its own try/catch so a single transient failure
+    // (rate-limit, network blip) doesn't drop everything that follows.
+    for (let i = 1; i < chunks.length; i++) {
+      try {
+        await messenger.createMessage(chunks[i]);
+      } catch (error) {
+        log('handleCompletion: failed to send chunk %d: %O', i, error);
       }
+    }
+  }
+
+  /**
+   * Deliver the first chunk via edit when possible, else send a new message.
+   * If editing fails for any reason, fall back to createMessage so the agent's
+   * actual reply still reaches the user — silent edit failures were causing
+   * "agent ran but no reply appeared" reports on Telegram.
+   */
+  private async deliverFirstChunk(
+    messenger: PlatformMessenger,
+    progressMessageId: string,
+    text: string,
+    canEdit: boolean,
+  ): Promise<void> {
+    if (canEdit && progressMessageId) {
+      try {
+        await messenger.editMessage(progressMessageId, text);
+        return;
+      } catch (error) {
+        log('handleCompletion: editMessage failed, falling back to createMessage: %O', error);
+      }
+    }
+    try {
+      await messenger.createMessage(text);
     } catch (error) {
-      log('handleCompletion: failed to send final message: %O', error);
+      log('handleCompletion: createMessage fallback failed: %O', error);
     }
   }
 

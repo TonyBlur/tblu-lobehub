@@ -1,8 +1,9 @@
 import { z } from 'zod';
 
-import { type SearchMode } from '../search';
-import { type UserMemoryEffort } from '../user/settings/memory';
-import { type RuntimeEnvConfig } from './agentConfig';
+import type { SearchMode } from '../search';
+import type { TopicGroupMode } from '../topic';
+import type { UserMemoryEffort } from '../user/settings/memory';
+import type { RuntimeEnvConfig } from './agentConfig';
 
 export interface WorkingModel {
   model: string;
@@ -17,7 +18,13 @@ export interface AgentMemoryChatConfig {
   };
 }
 
-export interface LobeAgentChatConfig extends AgentMemoryChatConfig {
+export interface AgentSelfIterationChatConfig {
+  selfIteration?: {
+    enabled?: boolean;
+  };
+}
+
+export interface LobeAgentChatConfig extends AgentMemoryChatConfig, AgentSelfIterationChatConfig {
   autoCreateTopicThreshold: number;
   codexMaxReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh';
   /**
@@ -79,6 +86,7 @@ export interface LobeAgentChatConfig extends AgentMemoryChatConfig {
    * Number of historical messages
    */
   historyCount?: number;
+  hy3ReasoningEffort?: 'no_think' | 'low' | 'high';
   /**
    * Image aspect ratio for image generation models
    */
@@ -145,6 +153,11 @@ export interface LobeAgentChatConfig extends AgentMemoryChatConfig {
    */
   toolResultMaxLength?: number;
 
+  /**
+   * Agent-specific topic list organization preference.
+   */
+  topicGroupMode?: TopicGroupMode;
+
   urlContext?: boolean;
 
   useModelBuiltinSearch?: boolean;
@@ -166,6 +179,14 @@ export const MemoryChatConfigSchema = z.object({
       effort: z.enum(['low', 'medium', 'high']).optional(),
       enabled: z.boolean().optional(),
       toolPermission: z.enum(['read-only', 'read-write']).optional(),
+    })
+    .optional(),
+});
+
+export const SelfIterationChatConfigSchema = z.object({
+  selfIteration: z
+    .object({
+      enabled: z.boolean().optional(),
     })
     .optional(),
 });
@@ -192,6 +213,7 @@ export const AgentChatConfigSchema = z
     gpt5_2ProReasoningEffort: z.enum(['medium', 'high', 'xhigh']).optional(),
     gpt5_2ReasoningEffort: z.enum(['none', 'low', 'medium', 'high', 'xhigh']).optional(),
     grok4_20ReasoningEffort: z.enum(['low', 'medium', 'high', 'xhigh']).optional(),
+    hy3ReasoningEffort: z.enum(['no_think', 'low', 'high']).optional(),
     deepseekV4ReasoningEffort: z.enum(['high', 'max']).optional(),
     historyCount: z.number().optional(),
     imageAspectRatio: z.string().optional(),
@@ -221,7 +243,9 @@ export const AgentChatConfigSchema = z
     thinkingLevel4: z.enum(['minimal', 'high']).optional(),
     thinkingLevel5: z.enum(['minimal', 'low', 'medium', 'high']).optional(),
     toolResultMaxLength: z.number().default(25000),
+    topicGroupMode: z.enum(['byTime', 'byProject', 'flat']).optional(),
     urlContext: z.boolean().optional(),
     useModelBuiltinSearch: z.boolean().optional(),
   })
-  .merge(MemoryChatConfigSchema);
+  .merge(MemoryChatConfigSchema)
+  .merge(SelfIterationChatConfigSchema);
