@@ -219,6 +219,31 @@ export default {
   'heterogeneousStatus.plan.label': 'Plan',
   'heterogeneousStatus.redetect': 'Re-detect',
   'heterogeneousStatus.unavailable': '{{name}} CLI not found. Please install or configure it.',
+
+  // Heterogeneous agent — Cloud tab (web environment config)
+  'heterogeneousStatus.cloud.tabLabel': 'Cloud',
+  'heterogeneousStatus.cloud.tokenLabel': 'Claude Code Token',
+  'heterogeneousStatus.cloud.tokenDesc':
+    'Your Claude Code OAuth token. Saved securely to Credentials once submitted. Run `claude setup-token` in your terminal to generate one.',
+  'heterogeneousStatus.cloud.tokenPlaceholder': 'Paste your OAuth token here',
+  'heterogeneousStatus.cloud.tokenChange': 'Change',
+  'heterogeneousStatus.cloud.tokenSave': 'Save',
+  'heterogeneousStatus.cloud.tokenCancel': 'Cancel',
+  'heterogeneousStatus.cloud.githubLabel': 'GitHub Connection',
+  'heterogeneousStatus.cloud.githubDesc':
+    'Select a GitHub OAuth credential to allow the sandbox to clone your private repositories.',
+  'heterogeneousStatus.cloud.githubPlaceholder': 'Select a GitHub credential...',
+  'heterogeneousStatus.cloud.githubNoCreds': 'No GitHub credentials found.',
+  'heterogeneousStatus.cloud.manageCredentials': 'Manage Credentials →',
+  'heterogeneousStatus.cloud.repoLabel': 'Repositories',
+  'heterogeneousStatus.cloud.repoDesc':
+    'Add repositories to the list. Switch the active one from the bottom bar in the chat view.',
+  'heterogeneousStatus.cloud.repoPlaceholder': 'owner/repo or https://github.com/owner/repo',
+  'heterogeneousStatus.cloud.repoAdd': 'Add',
+
+  // Heterogeneous agent — Desktop tab
+  'heterogeneousStatus.desktop.tabLabel': 'Desktop',
+
   'checking': 'Checking...',
 
   // Credentials Management
@@ -300,9 +325,9 @@ export default {
   'danger.reset.desc': 'Restore all settings to defaults. Your data wont be deleted.',
   'danger.reset.success': 'All settings have been reset',
   'danger.reset.title': 'Reset All Settings',
-  'defaultAgent.model.desc': 'Default model used when creating a new Agent',
+  'defaultAgent.model.desc': 'Model used when creating new agents',
   'defaultAgent.model.title': 'Model',
-  'defaultAgent.title': 'Default Agent Settings',
+  'defaultAgent.title': 'New Agent',
   'group.aiConfig': 'Agent',
   'group.common': 'General',
   'group.profile': 'Account',
@@ -760,6 +785,8 @@ export default {
   'settingSystem.oauth.signout.confirm': 'Confirm sign out?',
   'settingSystem.oauth.signout.success': 'Sign out successful',
   'settingSystem.title': 'System Settings',
+  'serviceModel.modelAssignments.title': 'Model Assignments',
+  'serviceModel.optionalFeatures.title': 'Optional Features',
   'settingSystemTools.appEnvironment.chromium.desc': 'Chromium browser engine version',
   'settingSystemTools.appEnvironment.desc': 'Built-in runtime versions in the desktop app',
   'settingSystemTools.appEnvironment.electron.desc': 'Electron framework version',
@@ -915,40 +942,39 @@ When I am ___, I need ___
   'sync.webrtc.title': 'WebRTC Sync',
   'systemAgent.agentMeta.label': 'Model',
   'systemAgent.agentMeta.modelDesc':
-    'Model designated for generating agent name, description, avatar, and tags',
-  'systemAgent.agentMeta.title': 'Agent Info Generation Helper',
+    'Model used to generate names, descriptions, avatars, and tags',
+  'systemAgent.agentMeta.title': 'Profile Generation',
   'systemAgent.customPrompt.addPrompt': 'Add Custom Prompt',
   'systemAgent.customPrompt.desc':
     'Once filled out, the system agent will use the custom prompt when generating content',
   'systemAgent.customPrompt.placeholder': 'Please enter custom prompt',
   'systemAgent.customPrompt.title': 'Custom Prompt',
   'systemAgent.generationTopic.label': 'Model',
-  'systemAgent.generationTopic.modelDesc':
-    'Model designated for automatic naming of AI image topics',
-  'systemAgent.generationTopic.title': 'AI Image Topic Naming Agent',
+  'systemAgent.generationTopic.modelDesc': 'Model used to name AI image topics',
+  'systemAgent.generationTopic.title': 'AI Image Topic Naming',
   'systemAgent.helpInfo':
     'When creating a new agent, the default agent settings will be used as preset values.',
   'systemAgent.historyCompress.label': 'Model',
-  'systemAgent.historyCompress.modelDesc':
-    'Specify the model used to compress conversation history',
-  'systemAgent.historyCompress.title': 'Conversation History Compression Agent',
+  'systemAgent.historyCompress.modelDesc': 'Model used to compress conversation history',
+  'systemAgent.historyCompress.title': 'Conversation History Compression',
   'systemAgent.inputCompletion.label': 'Model',
   'systemAgent.inputCompletion.modelDesc':
-    'Model used for input auto-completion suggestions (like GitHub Copilot ghost text)',
-  'systemAgent.inputCompletion.title': 'Input Auto-Completion Agent',
+    'Suggests text while you type. When enabled, this model generates the suggestions.',
+  'systemAgent.inputCompletion.title': 'Input Suggestions',
   'systemAgent.promptRewrite.label': 'Model',
-  'systemAgent.promptRewrite.modelDesc': 'Specify the model used to rewrite prompts',
-  'systemAgent.promptRewrite.title': 'Prompt Rewrite Agent',
+  'systemAgent.promptRewrite.modelDesc':
+    'Improves prompts before generation. When enabled, this model rewrites the prompt.',
+  'systemAgent.promptRewrite.title': 'Prompt Rewriting',
   'systemAgent.thread.label': 'Model',
-  'systemAgent.thread.modelDesc': 'The model designated for automatic renaming of subtopics',
-  'systemAgent.thread.title': 'Subtopic Auto-Naming Agent',
-  'systemAgent.title': 'System Agents',
+  'systemAgent.thread.modelDesc': 'Model used to rename subtopics',
+  'systemAgent.thread.title': 'Subtopic Auto-Naming',
+  'systemAgent.title': 'System Tasks',
   'systemAgent.topic.label': 'Model',
-  'systemAgent.topic.modelDesc': 'Model designated for automatic topic renaming',
-  'systemAgent.topic.title': 'Topic Auto-Naming Agent',
+  'systemAgent.topic.modelDesc': 'Model used to rename topics',
+  'systemAgent.topic.title': 'Topic Auto-Naming',
   'systemAgent.translation.label': 'Model',
-  'systemAgent.translation.modelDesc': 'Specify the model used for translation',
-  'systemAgent.translation.title': 'Message Translation Agent',
+  'systemAgent.translation.modelDesc': 'Model used to translate messages',
+  'systemAgent.translation.title': 'Message Translation',
   'tab.about': 'About',
   'tab.advanced': 'Advanced',
   'tab.addAgentSkill': 'Add Agent Skill',
@@ -1023,10 +1049,6 @@ When I am ___, I need ___
   'tools.builtins.lobe-cloud-sandbox.readme':
     'Execute Python, JavaScript, and TypeScript code in an isolated cloud environment. Run shell commands, manage files, search content with regex, and export results securely.',
   'tools.builtins.lobe-cloud-sandbox.title': 'Cloud Sandbox',
-  'tools.builtins.lobe-gtd.description': 'Plan goals and track progress with GTD methodology',
-  'tools.builtins.lobe-gtd.readme':
-    'Plan goals and track progress using GTD methodology. Create strategic plans, manage todo lists with status tracking, and execute long-running async tasks.',
-  'tools.builtins.lobe-gtd.title': 'GTD Tools',
   'tools.builtins.lobe-local-system.description':
     'Access and manage local files, run shell commands on your desktop',
   'tools.builtins.lobe-local-system.readme':
@@ -1052,9 +1074,6 @@ When I am ___, I need ___
   'tools.builtins.lobe-agent-documents.title': 'Documents',
   'tools.builtins.lobe-agent-management.description': 'Create, manage, and orchestrate AI agents',
   'tools.builtins.lobe-agent-management.title': 'Agent Management',
-  'tools.builtins.lobe-agent-marketplace.description':
-    'Show users a curated Agent Marketplace card and record which templates they pick.',
-  'tools.builtins.lobe-agent-marketplace.title': 'Agent Marketplace',
   'tools.builtins.lobe-brief.description':
     'Report progress, deliver results, and request user decisions',
   'tools.builtins.lobe-brief.title': 'Brief Tools',
@@ -1318,6 +1337,10 @@ When I am ___, I need ___
     'Outlook Calendar is an integrated scheduling tool within Microsoft Outlook that enables users to create appointments, organize meetings with others, and manage their time and events effectively.',
   'tools.lobehubSkill.providers.microsoft.readme':
     'Integrate with Outlook Calendar to view, create, and manage your events seamlessly. Schedule meetings, check availability, set reminders, and coordinate your time—all through natural language commands.',
+  'tools.lobehubSkill.providers.notion.description':
+    'Notion is a collaborative productivity and note-taking application.',
+  'tools.lobehubSkill.providers.notion.readme':
+    'Connect to Notion to access and manage your workspace. Create pages, search content, update databases, and organize your knowledge base—all through natural conversation with your AI assistant.',
   'tools.lobehubSkill.providers.twitter.description':
     'X (Twitter) is a social media platform for sharing real-time updates, news, and engaging with your audience through posts, replies, and direct messages.',
   'tools.lobehubSkill.providers.twitter.readme':
