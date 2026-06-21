@@ -5,7 +5,12 @@ import {
   type Cost,
   type Usage,
 } from '@lobechat/agent-runtime';
-import { AgentRuntime, computeStepContext, GeneralChatAgent } from '@lobechat/agent-runtime';
+import {
+  AgentRuntime,
+  computeStepContext,
+  GeneralChatAgent,
+  isParkedStatus,
+} from '@lobechat/agent-runtime';
 import { LobeAgentManifest } from '@lobechat/builtin-tool-lobe-agent';
 import { createPathScopeAudit } from '@lobechat/builtin-tool-local-system';
 import { PageAgentIdentifier } from '@lobechat/builtin-tool-page-agent';
@@ -53,7 +58,7 @@ import {
   selectTodosFromMessages,
 } from '../../message/selectors/dbMessage';
 import { buildRunLifecycle } from './runLifecycle/buildRunLifecycle';
-import type { RunScope } from './runLifecycle/types';
+import type { RunParkedReason, RunScope } from './runLifecycle/types';
 
 const log = debug('lobe-store:streaming-executor');
 
@@ -753,7 +758,7 @@ export class StreamingExecutorActionImpl {
       stepCount,
     );
 
-    // Run-completion side effects are assembled once (LOBE-10378) and invoked at
+    // Run-completion side effects are assembled once and invoked at
     // this boundary. The bodies are relocated verbatim into `buildRunLifecycle`,
     // so the streamingExecutor characterization net stays green (behavior-preserving).
     const runScope: RunScope = scope === 'sub_agent' ? 'sub_agent' : 'top_level';
@@ -765,14 +770,28 @@ export class StreamingExecutorActionImpl {
       runScope,
       runtimeType: 'client',
     });
-    const completeEvent = {
+    const lifecycleEventBase = {
       context,
       operationId,
       runId: operationId,
       runScope,
-      runtimeStatus: state.status,
       runtimeType: 'client' as const,
     };
+
+    // Parked (`waiting_for_human` / `waiting_for_async_tool`) is NOT terminal:
+    // route to `onRunParked`, which clears the loading UI for human approval but
+    // fires NO terminal side effects (title / queue drain / notification /
+    // complete signal). The run resumes under a new operation when the user
+    // approves / rejects / submits / skips.
+    if (isParkedStatus(state.status)) {
+      await runLifecycle.onRunParked({
+        ...lifecycleEventBase,
+        reason: state.status as RunParkedReason,
+      });
+      return;
+    }
+
+    const completeEvent = { ...lifecycleEventBase, runtimeStatus: state.status };
 
     const { requeued } = await runLifecycle.completeRun(completeEvent);
     // A queued follow-up sendMessage was scheduled — skip the post-run notification.

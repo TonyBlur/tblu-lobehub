@@ -8,6 +8,7 @@ import { z } from 'zod';
 
 import { withScopedPermission } from '@/business/server/trpc-middlewares/rbacPermission';
 import { wsCompatProcedure } from '@/business/server/trpc-middlewares/workspaceAuth';
+import { TopicTrigger } from '@/const/topic';
 import { AgentDocumentModel } from '@/database/models/agentDocuments';
 import { TopicModel } from '@/database/models/topic';
 import { TopicDocumentModel } from '@/database/models/topicDocument';
@@ -255,6 +256,56 @@ export const agentDocumentRouter = router({
     }),
 
   /**
+   * Return the chat topic that anchors the doc-scoped conversation for this
+   * `(documentId, agentId)` pair, creating it idempotently on the first call.
+   *
+   * Topics are marked with `trigger='document'` so they stay out of the main
+   * sidebar history (`MAIN_SIDEBAR_EXCLUDE_TRIGGERS` already excludes them).
+   * The mapping is persisted through `topic_documents`, so subsequent calls
+   * resolve the same topic id.
+   */
+  getOrCreateChatTopic: agentDocumentProcedure
+    .input(
+      z.object({
+        agentId: z.string(),
+        documentId: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.topicModel.findByAgentAndDocumentTrigger({
+        agentId: input.agentId,
+        documentId: input.documentId,
+        trigger: TopicTrigger.Document,
+      });
+      if (existing) return { topicId: existing.id };
+
+      const document = await ctx.agentDocumentService.findRowByDocumentId(
+        input.agentId,
+        input.documentId,
+      );
+      if (!document) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: `Document not found for agentId=${input.agentId}`,
+        });
+      }
+
+      const title = document.title || document.filename || 'Document chat';
+      const topic = await ctx.topicModel.create({
+        agentId: input.agentId,
+        title,
+        trigger: TopicTrigger.Document,
+      });
+
+      await ctx.topicDocumentModel.associate({
+        documentId: input.documentId,
+        topicId: topic.id,
+      });
+
+      return { topicId: topic.id };
+    }),
+
+  /**
    * Create or update a document
    */
   upsertDocument: agentDocumentProcedureWrite
@@ -372,12 +423,16 @@ export const agentDocumentRouter = router({
     .input(
       z.object({
         agentId: z.string(),
+        // Reveal the auto-created `.tool-results` archive. Off by default so
+        // user-facing lists stay clean; the agent document-listing tool opts in.
+        includeArchivedToolResults: z.boolean().optional().default(false),
         scope: z.enum(['agent', 'currentTopic']).optional().default('agent'),
         sourceType: z.enum(['all', 'file', 'web']).optional().default('all'),
         topicId: z.string().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
+      const { includeArchivedToolResults } = input;
       if (input.scope === 'currentTopic') {
         if (!input.topicId) throw new Error('topicId is required to list current topic documents');
 
@@ -385,10 +440,13 @@ export const agentDocumentRouter = router({
           input.agentId,
           input.topicId,
           input.sourceType,
+          { includeArchivedToolResults },
         );
       }
 
-      return ctx.agentDocumentService.listDocuments(input.agentId, input.sourceType);
+      return ctx.agentDocumentService.listDocuments(input.agentId, input.sourceType, {
+        includeArchivedToolResults,
+      });
     }),
 
   /**

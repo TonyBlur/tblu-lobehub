@@ -1208,7 +1208,7 @@ export const executeHeterogeneousAgent = async (
       // ─── stream_start with newStep: new LLM turn ───
       // The reducer flushes the prior turn's content/reasoning/model and opens
       // a new assistant chained off the last tool message (the shared chain rule
-      // incl. the `lastToolMsgIdEver` toolless-step rescue — the 断链 fix). We
+      // incl. the `lastToolMsgIdEver` toolless-step rescue — the chain-break fix). We
       // then forward the event (carrying the new assistant id) for live UI.
       if (event.type === 'stream_start' && event.data?.newStep) {
         // Defer same-batch stream_chunk / tool events through persistQueue so the
@@ -1282,7 +1282,7 @@ export const executeHeterogeneousAgent = async (
       // — otherwise the handler reads `assistant.tools[]` while a parallel
       // `persistToolBatch` is still mid-flight and `replaceMessages` clobbers
       // the in-memory cumulative tools[] with a shorter snapshot. That's the
-      // "7 → 6 次技能调用" rollback users see on parallel CC tool batches.
+      // "7 → 6 tool-calls" rollback users see on parallel CC tool batches.
       //
       // Other forwards (text / reasoning / tools_calling dispatches) stay
       // synchronous so live streaming UX isn't gated on DB round-trips.
@@ -1355,7 +1355,10 @@ export const executeHeterogeneousAgent = async (
         pendingSubagentFlush.clear();
 
         if (!isErrorTerminal) {
-          writeTopicStatus('active');
+          // A clean completion the user isn't watching is owned by the gateway
+          // handler's markTopicUnread (status: 'unread'); only clear back to
+          // 'active' when the user is viewing so the two writes don't race.
+          if (get().activeTopicId === context.topicId) writeTopicStatus('active');
           // NOW forward the deferred terminal event — handler will
           // fetchAndReplaceMessages and pick up the final persisted state.
           eventHandler(terminalEvent);
@@ -1465,7 +1468,11 @@ export const executeHeterogeneousAgent = async (
         get().completeOperation(operationId);
         const completedOp = get().operations?.[operationId];
         if (completedOp?.context.agentId) {
-          get().markUnreadCompleted?.(completedOp.context.agentId, completedOp.context.topicId);
+          get().markTopicUnread?.({
+            agentId: completedOp.context.agentId,
+            groupId: completedOp.context.groupId,
+            topicId: completedOp.context.topicId,
+          });
         }
 
         const merged = mergeQueuedMessages(remainingQueued);

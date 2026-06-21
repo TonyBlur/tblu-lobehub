@@ -58,11 +58,16 @@ class AgentDocumentService {
 
   listDocuments = async (params: {
     agentId: string;
+    includeArchivedToolResults?: boolean;
     scope?: 'agent' | 'currentTopic';
     sourceType?: 'all' | 'file' | 'web';
     topicId?: string;
   }) => {
     return lambdaClient.agentDocument.listDocuments.query(params);
+  };
+
+  getOrCreateChatTopic = async (params: { agentId: string; documentId: string }) => {
+    return lambdaClient.agentDocument.getOrCreateChatTopic.mutate(params);
   };
 
   associateDocument = async (params: { agentId: string; documentId: string }) => {
