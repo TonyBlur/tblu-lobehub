@@ -7,8 +7,13 @@ import {
   BusinessMobileRoutesWithoutMainLayout,
 } from '@/business/client/BusinessMobileRoutes';
 import { mobileAgentSettingsRouteMeta } from '@/features/RouteMeta/mobileRouteMeta';
-import { verifyReportsRouteMeta, verifyRouteMeta } from '@/features/Verify/routeMeta';
+import {
+  acceptanceRouteMeta,
+  verifyReportsRouteMeta,
+  verifyRouteMeta,
+} from '@/features/Verify/routeMeta';
 import { agentRouteMeta } from '@/routes/(main)/agent/features/routeMeta';
+import { sharePageRouteMeta } from '@/routes/share/page/[id]/routeMeta';
 import { shareTopicRouteMeta } from '@/routes/share/t/[id]/routeMeta';
 import { dynamicElement, dynamicLayout, ErrorBoundary, redirectElement } from '@/utils/router';
 
@@ -209,6 +214,18 @@ export const sharedMainAreaChildren: RouteObject[] = [
     path: 'community',
   },
 
+  // Agents view-all route (flat list of workspace/private agents)
+  {
+    children: [
+      {
+        element: dynamicElement(() => import('@/routes/(main)/agents'), 'Mobile > Agents'),
+        index: true,
+      },
+    ],
+    errorElement: <ErrorBoundary resetPath=".." />,
+    path: 'agents',
+  },
+
   // Task workspace routes (cross-agent)
   {
     children: [
@@ -303,6 +320,10 @@ export const mobileRoutes: RouteObject[] = [
             ),
             path: 'provider',
           },
+          {
+            element: redirectElement('/settings/credential'),
+            path: 'creds',
+          },
           // Other settings tabs (common, agent, memory, tts, about, etc.)
           {
             element: dynamicElement(
@@ -310,6 +331,13 @@ export const mobileRoutes: RouteObject[] = [
               'Mobile > Settings > Tab',
             ),
             path: ':tab',
+          },
+          {
+            element: dynamicElement(
+              () => import('@/routes/(main)/settings'),
+              'Mobile > Settings > Tab > Sub',
+            ),
+            path: ':tab/:sub',
           },
         ],
         element: dynamicLayout(
@@ -419,6 +447,13 @@ export const mobileRoutes: RouteObject[] = [
               },
               {
                 element: dynamicElement(
+                  () => import('@/routes/(main)/[workspaceSlug]/settings/notification'),
+                  'Mobile > Workspace > Settings > Notification',
+                ),
+                path: 'notification',
+              },
+              {
+                element: dynamicElement(
                   () => import('@/routes/(main)/[workspaceSlug]/settings/plans'),
                   'Mobile > Workspace > Settings > Plans',
                 ),
@@ -451,6 +486,20 @@ export const mobileRoutes: RouteObject[] = [
                   'Mobile > Workspace > Settings > Audit Log',
                 ),
                 path: 'audit-log',
+              },
+              {
+                element: dynamicElement(
+                  () => import('@/routes/(main)/[workspaceSlug]/settings/oauth-apps'),
+                  'Mobile > Workspace > Settings > OAuth Apps',
+                ),
+                path: 'oauth-apps',
+              },
+              {
+                element: dynamicElement(
+                  () => import('@/routes/(main)/[workspaceSlug]/settings/oauth-apps'),
+                  'Mobile > Workspace > Settings > OAuth App Detail',
+                ),
+                path: 'oauth-apps/:sub',
               },
             ],
             element: dynamicLayout(
@@ -495,22 +544,6 @@ export const mobileRoutes: RouteObject[] = [
     errorElement: <ErrorBoundary />,
     path: '/onboarding',
   },
-  {
-    element: dynamicElement(
-      () => import('@/routes/onboarding/agent'),
-      'Mobile > Onboarding > Agent',
-    ),
-    errorElement: <ErrorBoundary />,
-    path: '/onboarding/agent',
-  },
-  {
-    element: dynamicElement(
-      () => import('@/routes/onboarding/classic'),
-      'Mobile > Onboarding > Classic',
-    ),
-    errorElement: <ErrorBoundary />,
-    path: '/onboarding/classic',
-  },
   ...BusinessMobileRoutesWithoutMainLayout,
 
   // Share topic route (outside main layout)
@@ -534,6 +567,7 @@ export const mobileRoutes: RouteObject[] = [
     children: [
       {
         element: dynamicElement(() => import('@/routes/share/page/[id]'), 'Mobile > Share > Page'),
+        handle: { meta: sharePageRouteMeta },
         path: ':id',
       },
     ],
@@ -567,5 +601,23 @@ export const mobileRoutes: RouteObject[] = [
     errorElement: <ErrorBoundary />,
     handle: { meta: verifyReportsRouteMeta },
     path: '/verify',
+  },
+  {
+    element: dynamicElement(
+      () => import('@/routes/acceptance/[acceptanceId]'),
+      'Mobile > AcceptanceReport',
+    ),
+    errorElement: <ErrorBoundary />,
+    handle: { meta: acceptanceRouteMeta },
+    path: '/acceptance/:acceptanceId',
+  },
+  {
+    element: dynamicElement(
+      () => import('@/routes/acceptance/[acceptanceId]'),
+      'Mobile > AcceptanceCheck',
+    ),
+    errorElement: <ErrorBoundary />,
+    handle: { meta: acceptanceRouteMeta },
+    path: '/acceptance/:acceptanceId/check/:checkId',
   },
 ];

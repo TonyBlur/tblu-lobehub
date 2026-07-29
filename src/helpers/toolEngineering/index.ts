@@ -1,7 +1,9 @@
 /**
  * Tools Engineering - Unified tools processing using ToolsEngine
  */
+import { BrowserManifest } from '@lobechat/builtin-tool-browser';
 import { CloudSandboxManifest } from '@lobechat/builtin-tool-cloud-sandbox';
+import { ImageGenerationManifest } from '@lobechat/builtin-tool-image-generation';
 import { KnowledgeBaseManifest } from '@lobechat/builtin-tool-knowledge-base';
 import { LocalSystemManifest } from '@lobechat/builtin-tool-local-system';
 import { MemoryManifest } from '@lobechat/builtin-tool-memory';
@@ -18,10 +20,12 @@ import {
 } from '@lobechat/types';
 
 import type { ConnectorToolPermission } from '@/database/schemas';
+import { applyToolNameMaxLength } from '@/helpers/applyToolNameMaxLength';
 import { isToolAvailableInCurrentEnv } from '@/helpers/toolAvailability';
 import { patchManifestWithPermissions } from '@/libs/mcp/patchManifestPermissions';
 import { getAgentStoreState } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
+import { aiModelSelectors, getAiInfraStoreState } from '@/store/aiInfra';
 import { getToolStoreState } from '@/store/tool';
 import {
   composioStoreSelectors,
@@ -30,7 +34,7 @@ import {
 } from '@/store/tool/selectors';
 import { connectorSelectors } from '@/store/tool/slices/connector';
 import { useUserStore } from '@/store/user';
-import { settingsSelectors } from '@/store/user/selectors';
+import { labPreferSelectors, settingsSelectors } from '@/store/user/selectors';
 
 import { getSearchConfig } from '../getSearchConfig';
 import { isCanUseFC } from '../isCanUseFC';
@@ -111,6 +115,11 @@ export const createToolsEngine = (config: ToolsEngineConfig = {}): ToolsEngine =
     disabledPluginIds = [],
     manifestContext,
   } = config;
+
+  // Push the deployment's `TOOL_NAME_MAX_LENGTH` in before any tool name is
+  // generated — the client mirror of `createServerToolsEngine`. Without it a
+  // deployment setting `0` would still get `MD5HASH_…` names on this path.
+  applyToolNameMaxLength();
 
   const toolStoreState = getToolStoreState();
 
@@ -225,8 +234,17 @@ export const createAgentToolsEngine = (
     agentChatConfigSelectors.currentChatConfig(agentState).memory?.enabled ??
     settingsSelectors.memoryEnabled(useUserStore.getState());
   const webBrowsingEnabled = searchConfig.useApplicationBuiltinSearchTool;
+  const imageGenerationEnabled =
+    isCanUseFC(workingModel.model, workingModel.provider) &&
+    !aiModelSelectors.isModelSupportImageOutput(
+      workingModel.model,
+      workingModel.provider,
+    )(getAiInfraStoreState());
 
   const chatModeRules = {
+    // Example: Claude can call tools but lacks native imageOutput, so expose the
+    // image-generation fallback; image-output models should use their native path.
+    [ImageGenerationManifest.identifier]: imageGenerationEnabled,
     [KnowledgeBaseManifest.identifier]: kbEnabled,
     [MemoryManifest.identifier]: memoryEnabled,
     [WebBrowsingManifest.identifier]: webBrowsingEnabled,
@@ -241,6 +259,13 @@ export const createAgentToolsEngine = (
     // Always-on builtin tools
     ...Object.fromEntries(alwaysOnToolIds.map((id) => [id, true])),
     // System-level rules (may override user selection for specific tools)
+    // Browser rides the same local-runtime gate as local-system (the control
+    // IPC only exists in the desktop main process), plus the in-app browser
+    // Labs toggle that also governs the sidebar tab — with the lab off the
+    // tool would drive a pane the user can't see.
+    [BrowserManifest.identifier]:
+      agentChatConfigSelectors.isLocalSystemEnabled(agentState) &&
+      labPreferSelectors.enableInAppBrowser(useUserStore.getState()),
     [CloudSandboxManifest.identifier]: agentChatConfigSelectors.isCloudSandboxEnabled(agentState),
     [KnowledgeBaseManifest.identifier]: kbEnabled,
     [LocalSystemManifest.identifier]: agentChatConfigSelectors.isLocalSystemEnabled(agentState),

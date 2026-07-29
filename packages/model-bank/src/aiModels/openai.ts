@@ -46,7 +46,7 @@ export const openaiChatModels: AIChatModelCard[] = [
     },
     contextWindowTokens: 1_050_000,
     description:
-      "GPT-5.6 Sol is OpenAI's frontier model for complex reasoning, coding, and long-horizon agentic work. The gpt-5.6 alias routes to Sol.",
+      "GPT-5.6 Sol is OpenAI's latest flagship and most capable model, the top choice in the GPT family for coding and agentic work.",
     displayName: 'GPT-5.6 Sol',
     enabled: true,
     family: 'gpt',
@@ -240,7 +240,8 @@ export const openaiChatModels: AIChatModelCard[] = [
       vision: true,
     },
     contextWindowTokens: 1_050_000,
-    description: 'GPT-5.5 is our newest frontier model for the most complex professional work.',
+    description:
+      "GPT-5.5 is OpenAI's previous-generation frontier model for complex professional work.",
     displayName: 'GPT-5.5',
     enabled: true,
     family: 'gpt',
@@ -251,39 +252,30 @@ export const openaiChatModels: AIChatModelCard[] = [
     pricing: {
       units: [
         {
-          lookup: {
-            prices: {
-              '[0, 0.272]': 5,
-              '[0.272, infinity]': 10,
-            },
-            pricingParams: ['textInput'],
-          },
           name: 'textInput',
-          strategy: 'lookup',
+          strategy: 'tiered',
+          tiers: [
+            { rate: 5, upTo: 272_000 },
+            { rate: 10, upTo: 'infinity' },
+          ],
           unit: 'millionTokens',
         },
         {
-          lookup: {
-            prices: {
-              '[0, 0.272]': 0.5,
-              '[0.272, infinity]': 1,
-            },
-            pricingParams: ['textInput'],
-          },
           name: 'textInput_cacheRead',
-          strategy: 'lookup',
+          strategy: 'tiered',
+          tiers: [
+            { rate: 0.5, upTo: 272_000 },
+            { rate: 1, upTo: 'infinity' },
+          ],
           unit: 'millionTokens',
         },
         {
-          lookup: {
-            prices: {
-              '[0, 0.272]': 30,
-              '[0.272, infinity]': 45,
-            },
-            pricingParams: ['textInput'],
-          },
           name: 'textOutput',
-          strategy: 'lookup',
+          strategy: 'tiered',
+          tiers: [
+            { rate: 30, upTo: 272_000 },
+            { rate: 45, upTo: 'infinity' },
+          ],
           unit: 'millionTokens',
         },
       ],
@@ -356,39 +348,30 @@ export const openaiChatModels: AIChatModelCard[] = [
     pricing: {
       units: [
         {
-          lookup: {
-            prices: {
-              '[0, 0.272]': 2.5,
-              '[0.272, infinity]': 5,
-            },
-            pricingParams: ['textInput'],
-          },
           name: 'textInput',
-          strategy: 'lookup',
+          strategy: 'tiered',
+          tiers: [
+            { rate: 2.5, upTo: 272_000 },
+            { rate: 5, upTo: 'infinity' },
+          ],
           unit: 'millionTokens',
         },
         {
-          lookup: {
-            prices: {
-              '[0, 0.272]': 0.25,
-              '[0.272, infinity]': 0.5,
-            },
-            pricingParams: ['textInput'],
-          },
           name: 'textInput_cacheRead',
-          strategy: 'lookup',
+          strategy: 'tiered',
+          tiers: [
+            { rate: 0.25, upTo: 272_000 },
+            { rate: 0.5, upTo: 'infinity' },
+          ],
           unit: 'millionTokens',
         },
         {
-          lookup: {
-            prices: {
-              '[0, 0.272]': 15,
-              '[0.272, infinity]': 22.5,
-            },
-            pricingParams: ['textInput'],
-          },
           name: 'textOutput',
-          strategy: 'lookup',
+          strategy: 'tiered',
+          tiers: [
+            { rate: 15, upTo: 272_000 },
+            { rate: 22.5, upTo: 'infinity' },
+          ],
           unit: 'millionTokens',
         },
       ],
@@ -419,27 +402,21 @@ export const openaiChatModels: AIChatModelCard[] = [
     pricing: {
       units: [
         {
-          lookup: {
-            prices: {
-              '[0, 0.272]': 30,
-              '[0.272, infinity]': 60,
-            },
-            pricingParams: ['textInput'],
-          },
           name: 'textInput',
-          strategy: 'lookup',
+          strategy: 'tiered',
+          tiers: [
+            { rate: 30, upTo: 272_000 },
+            { rate: 60, upTo: 'infinity' },
+          ],
           unit: 'millionTokens',
         },
         {
-          lookup: {
-            prices: {
-              '[0, 0.272]': 180,
-              '[0.272, infinity]': 270,
-            },
-            pricingParams: ['textInput'],
-          },
           name: 'textOutput',
-          strategy: 'lookup',
+          strategy: 'tiered',
+          tiers: [
+            { rate: 180, upTo: 272_000 },
+            { rate: 270, upTo: 'infinity' },
+          ],
           unit: 'millionTokens',
         },
       ],

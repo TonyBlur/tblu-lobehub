@@ -682,6 +682,7 @@ export class TaskService {
           createdAt: doc?.createdAt ? new Date(doc.createdAt).toISOString() : undefined,
           documentId: node.id,
           fileType: doc?.fileType,
+          inaccessible: doc?.inaccessible,
           size: doc?.charCount,
           sourceTaskId: doc?.sourceTaskId,
           sourceTaskIdentifier: doc?.sourceTaskIdentifier,
@@ -808,6 +809,7 @@ export class TaskService {
               timeout: task.heartbeatTimeout,
             }
           : undefined,
+      id: task.id,
       identifier: task.identifier,
       instruction: task.instruction,
       name: task.name,

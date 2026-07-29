@@ -11,7 +11,7 @@ const anthropicChatModels: AIChatModelCard[] = [
     },
     contextWindowTokens: 1_000_000,
     description:
-      "Claude Fable 5 is Anthropic's most capable model — a new tier above Opus for the most demanding reasoning and long-horizon agentic work.",
+      "Claude Fable 5 is Anthropic's strongest model — a new tier above Opus for the most demanding reasoning, agentic work, and coding, at a premium price.",
     displayName: 'Claude Fable 5',
     enabled: true,
     family: 'claude-mythos',
@@ -28,6 +28,40 @@ const anthropicChatModels: AIChatModelCard[] = [
       ],
     },
     releasedAt: '2026-06-09',
+    settings: {
+      disabledParams: ['temperature', 'top_p'],
+      extendParams: ['disableContextCaching', 'enableAdaptiveThinking', 'opus47Effort'],
+      searchImpl: 'params',
+    },
+    type: 'chat',
+  },
+  {
+    abilities: {
+      functionCall: true,
+      reasoning: true,
+      search: true,
+      structuredOutput: true,
+      vision: true,
+    },
+    contextWindowTokens: 1_000_000,
+    description:
+      "Claude Opus 5 is Anthropic's strongest Opus model, built for deep reasoning, agentic coding, and long-horizon professional work.",
+    displayName: 'Claude Opus 5',
+    enabled: true,
+    family: 'claude-opus',
+    generation: 'claude-5',
+    id: 'claude-opus-5',
+    knowledgeCutoff: '2026-05',
+    maxOutput: 128_000,
+    pricing: {
+      units: [
+        { name: 'textInput_cacheRead', rate: 0.5, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textInput', rate: 5, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textOutput', rate: 25, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textInput_cacheWrite', rate: 6.25, strategy: 'fixed', unit: 'millionTokens' },
+      ],
+    },
+    releasedAt: '2026-07-24',
     settings: {
       disabledParams: ['temperature', 'top_p'],
       extendParams: ['disableContextCaching', 'enableAdaptiveThinking', 'opus47Effort'],
@@ -82,7 +116,7 @@ const anthropicChatModels: AIChatModelCard[] = [
     },
     contextWindowTokens: 1_000_000,
     description:
-      "Claude Opus 4.8 is Anthropic's most capable model, building on Opus 4.7 with improvements across reasoning, agentic coding, and tool use.",
+      "Claude Opus 4.8 is Anthropic's flagship Opus model, building on Opus 4.7 with improvements across reasoning, agentic coding, and tool use.",
     displayName: 'Claude Opus 4.8',
     enabled: true,
     family: 'claude-opus',

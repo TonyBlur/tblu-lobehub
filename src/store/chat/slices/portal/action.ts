@@ -1,5 +1,8 @@
+import type { TopicCommentItem } from '@lobechat/types';
+
 import { projectFileService } from '@/services/projectFile';
 import { type ChatStore } from '@/store/chat/store';
+import { useGlobalStore } from '@/store/global';
 import { type StoreSetter } from '@/store/types';
 import { type PortalArtifact } from '@/types/artifact';
 
@@ -466,6 +469,10 @@ export class ChatPortalActionImpl {
     this.#get().pushPortalView({ artifact, type: PortalViewType.Artifact });
   };
 
+  openAgentDetail = (agentId: string): void => {
+    this.#get().pushPortalView({ agentId, type: PortalViewType.AgentDetail });
+  };
+
   openDocument = (documentId: string, agentDocumentId?: string): void => {
     this.#get().pushPortalView({ agentDocumentId, documentId, type: PortalViewType.Document });
   };
@@ -574,6 +581,14 @@ export class ChatPortalActionImpl {
     return buffer;
   };
 
+  openAcceptance = (acceptanceId: string): void => {
+    this.#get().pushPortalView({ acceptanceId, type: PortalViewType.Acceptance });
+  };
+
+  openAcceptanceCheck = (acceptanceId: string, checkId: string): void => {
+    this.#get().pushPortalView({ acceptanceId, checkId, type: PortalViewType.AcceptanceCheck });
+  };
+
   openMessageDetail = (messageId: string): void => {
     this.#get().pushPortalView({ messageId, type: PortalViewType.MessageDetail });
   };
@@ -586,12 +601,40 @@ export class ChatPortalActionImpl {
     this.#get().pushPortalView({ taskId, type: PortalViewType.TaskDetail });
   };
 
+  openTopicCommentThread = (
+    topicId: string,
+    rootCommentId: string,
+    initialRoot?: TopicCommentItem,
+    initialReplyCount?: number,
+    focusCommentId?: string,
+  ): void => {
+    this.#get().pushPortalView({
+      ...(focusCommentId ? { focusCommentId } : {}),
+      ...(initialReplyCount === undefined ? {} : { initialReplyCount }),
+      ...(initialRoot ? { initialRoot } : {}),
+      rootCommentId,
+      topicId,
+      type: PortalViewType.TopicCommentThread,
+    });
+  };
+
+  openTopicComments = (topicId: string, messageId?: string): void => {
+    const { setWorkingSidebarTab, toggleRightPanel } = useGlobalStore.getState();
+    toggleRightPanel(true);
+    setWorkingSidebarTab('comments');
+    this.#get().pushPortalView({ messageId, topicId, type: PortalViewType.TopicComments });
+  };
+
   openToolUI = (messageId: string, identifier: string, params?: Record<string, any>): void => {
     this.#get().pushPortalView({ identifier, messageId, params, type: PortalViewType.ToolUI });
   };
 
   openVerifyResult = (operationId: string, checkItemId: string): void => {
     this.#get().pushPortalView({ checkItemId, operationId, type: PortalViewType.VerifyResult });
+  };
+
+  openVerifyReport = (runId: string): void => {
+    this.#get().pushPortalView({ runId, type: PortalViewType.VerifyReport });
   };
 
   popPortalView = (): void => {

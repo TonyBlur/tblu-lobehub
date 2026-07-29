@@ -9,7 +9,9 @@
  * - Gets model capabilities from provided function
  * - No dependency on frontend stores (useToolStore, useAgentStore, etc.)
  */
+import { BrowserManifest } from '@lobechat/builtin-tool-browser';
 import { CloudSandboxManifest } from '@lobechat/builtin-tool-cloud-sandbox';
+import { ImageGenerationManifest } from '@lobechat/builtin-tool-image-generation';
 import { KnowledgeBaseManifest } from '@lobechat/builtin-tool-knowledge-base';
 import { LocalSystemManifest } from '@lobechat/builtin-tool-local-system';
 import { MemoryManifest } from '@lobechat/builtin-tool-memory';
@@ -154,6 +156,7 @@ export const createServerAgentToolsEngine = (
     canUseDevice = false,
     deviceContext,
     disableLocalSystem = false,
+    disabledPluginIds = [],
     executionPlan,
     globalMemoryEnabled = false,
     hasEnabledKnowledgeBases = false,
@@ -161,7 +164,9 @@ export const createServerAgentToolsEngine = (
     isGroupSupervisor = false,
     manifestContext,
     model,
+    modelAbilities,
     provider,
+    useApplicationBuiltinSearchTool,
   } = params;
 
   // Tools that need a user-side execution target (local-system, stdio MCP)
@@ -203,7 +208,9 @@ export const createServerAgentToolsEngine = (
     : !!deviceContext?.autoActivated || !!deviceContext?.boundDeviceId;
 
   const searchMode = agentConfig.chatConfig?.searchMode ?? 'auto';
-  const isSearchEnabled = searchMode !== 'off';
+  const isSearchEnabled = useApplicationBuiltinSearchTool ?? searchMode !== 'off';
+  const imageGenerationEnabled =
+    context.isModelSupportToolUse(model, provider) && !modelAbilities?.imageOutput;
   // Tool mode: explicit `toolMode` wins; otherwise derive from `enableAgentMode`
   // (undefined = agent). `custom` = toolset is exactly the agent's plugins.
   const toolMode = resolveToolMode(agentConfig.chatConfig ?? undefined);
@@ -229,6 +236,9 @@ export const createServerAgentToolsEngine = (
   // web-browsing needs search on). `allowExplicitActivation` is off so the
   // activator can't smuggle anything else in.
   const chatModeRules = {
+    // Example: Claude can call tools but lacks native imageOutput, so expose the
+    // image-generation fallback; image-output models should use their native path.
+    [ImageGenerationManifest.identifier]: imageGenerationEnabled,
     [KnowledgeBaseManifest.identifier]: hasEnabledKnowledgeBases,
     [MemoryManifest.identifier]: globalMemoryEnabled,
     [WebBrowsingManifest.identifier]: isSearchEnabled,
@@ -261,6 +271,13 @@ export const createServerAgentToolsEngine = (
       hasDeviceProxy &&
       !!deviceContext?.deviceOnline &&
       !!deviceContext?.autoActivated,
+    // Browser drives the device's in-app browser — same device gate as
+    // local-system: local runtime routed to an online, auto-activated device.
+    [BrowserManifest.identifier]:
+      runtimeMode === 'local' &&
+      hasDeviceProxy &&
+      !!deviceContext?.deviceOnline &&
+      !!deviceContext?.autoActivated,
     [MemoryManifest.identifier]: globalMemoryEnabled,
     // Only auto-enable in bot conversations; otherwise let user's plugin selection take effect
     ...(isBotConversation && { [MessageManifest.identifier]: true }),
@@ -281,6 +298,13 @@ export const createServerAgentToolsEngine = (
     [RemoteDeviceManifest.identifier]: deviceCapable && hasDeviceProxy && !deviceLocked,
     [WebBrowsingManifest.identifier]: isSearchEnabled,
   };
+
+  const excludedIdentifiers = new Set(disabledPluginIds);
+  if (!canUseDevice) {
+    for (const identifier of DEVICE_TOOL_IDENTIFIERS) excludedIdentifiers.add(identifier);
+  } else if (deviceLocked) {
+    for (const identifier of REMOTE_DEVICE_TOOL_IDENTIFIERS) excludedIdentifiers.add(identifier);
+  }
 
   return createServerToolsEngine(context, {
     // Pass additional manifests (e.g., LobeHub Skills)
@@ -309,11 +333,7 @@ export const createServerAgentToolsEngine = (
     // resolve them regardless of which manifest source declared them.
     // Locked turns exclude the remote-device picker only (local-system
     // stays for the routed device).
-    excludeIdentifiers: canUseDevice
-      ? deviceLocked
-        ? REMOTE_DEVICE_TOOL_IDENTIFIERS
-        : undefined
-      : DEVICE_TOOL_IDENTIFIERS,
+    excludeIdentifiers: excludedIdentifiers.size > 0 ? excludedIdentifiers : undefined,
     // Conversation context for context-aware builtin manifests (scope /
     // isSubAgent), e.g. hiding lobe-agent's callSubAgent in sub-agent / group runs.
     manifestContext,

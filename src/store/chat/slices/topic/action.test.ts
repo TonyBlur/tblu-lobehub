@@ -1,4 +1,4 @@
-import { type UIChatMessage } from '@lobechat/types';
+import type { LobeUser, UIChatMessage } from '@lobechat/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { type Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,6 +13,7 @@ import { PortalViewType } from '@/store/chat/slices/portal/initialState';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { topicMapKey } from '@/store/chat/utils/topicMapKey';
 import { useSessionStore } from '@/store/session';
+import { useUserStore } from '@/store/user';
 import { type ChatTopic } from '@/types/topic';
 
 import { useChatStore } from '../../store';
@@ -32,6 +33,7 @@ vi.mock('@/services/topic', () => ({
   topicService: {
     removeTopics: vi.fn(),
     removeTopicsByAgentId: vi.fn(),
+    removeTopicsByGroupId: vi.fn(),
     removeAllTopic: vi.fn(),
     removeTopic: vi.fn(),
     cloneTopic: vi.fn(),
@@ -41,6 +43,7 @@ vi.mock('@/services/topic', () => ({
     updateTopicTitle: vi.fn(),
     updateTopic: vi.fn(),
     batchRemoveTopics: vi.fn(),
+    getTopicDetail: vi.fn(),
     getTopics: vi.fn(),
     queryTopics: vi.fn(),
     searchTopics: vi.fn(),
@@ -86,6 +89,7 @@ beforeEach(() => {
     false,
   );
   useAgentStore.setState({ agentDocumentsMap: {} });
+  useUserStore.setState({ user: { id: 'user-1' } as LobeUser });
   useSessionStore.setState(
     {
       activeId: 'inbox',
@@ -523,6 +527,42 @@ describe('topic action', () => {
       expect(updateFavoriteSpy).toHaveBeenCalledWith(topicId, { favorite: favState });
     });
   });
+  describe('updateTopicStatus', () => {
+    // Unique ids: updateTopicStatus registers a TTL-bounded pending status-write
+    // in a private map that beforeEach's state reset can't clear, so a shared id
+    // would bleed status onto other tests' fetched-topic fixtures.
+    it('stamps completedAt when archiving (status: completed)', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const topicId = 'update-status-completed-topic';
+
+      const updateSpy = vi.spyOn(topicService, 'updateTopic').mockResolvedValue(undefined as any);
+
+      await act(async () => {
+        await result.current.updateTopicStatus({ status: 'completed', topicId });
+      });
+
+      // "Archive" persists the completion timestamp alongside the status so the
+      // bulk/stale archive matches the single-item markTopicCompleted.
+      expect(updateSpy).toHaveBeenCalledWith(topicId, {
+        completedAt: expect.any(Date),
+        status: 'completed',
+      });
+    });
+
+    it('does not touch completedAt for non-completed transitions', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const topicId = 'update-status-running-topic';
+
+      const updateSpy = vi.spyOn(topicService, 'updateTopic').mockResolvedValue(undefined as any);
+
+      await act(async () => {
+        await result.current.updateTopicStatus({ status: 'running', topicId });
+      });
+
+      // Agent-run status writes must stay a pure status update — no completedAt.
+      expect(updateSpy).toHaveBeenCalledWith(topicId, { status: 'running' });
+    });
+  });
   describe('useFetchTopics', () => {
     it('should fetch topics for a given session id', async () => {
       const sessionId = 'test-session-id';
@@ -839,11 +879,11 @@ describe('topic action', () => {
     });
   });
   describe('switchTopic', () => {
-    it('should update activeTopicId and call refreshMessages', async () => {
+    it('should update activeTopicId and softly revalidate messages', async () => {
       const topicId = 'topic-id';
       const { result } = renderHook(() => useChatStore());
 
-      const refreshMessagesSpy = vi.spyOn(result.current, 'refreshMessages');
+      const revalidateMessagesSpy = vi.spyOn(result.current, 'revalidateMessages');
       // Call the switchTopic action with the topicId
       await act(async () => {
         await result.current.switchTopic(topicId);
@@ -853,14 +893,14 @@ describe('topic action', () => {
       expect(useChatStore.getState().activeTopicId).toBe(topicId);
 
       // Verify that the refreshMessages was called to update the messages
-      expect(refreshMessagesSpy).toHaveBeenCalled();
+      expect(revalidateMessagesSpy).toHaveBeenCalled();
     });
 
     it('should support options object as second parameter', async () => {
       const topicId = 'topic-id';
       const { result } = renderHook(() => useChatStore());
 
-      const refreshMessagesSpy = vi.spyOn(result.current, 'refreshMessages');
+      const revalidateMessagesSpy = vi.spyOn(result.current, 'revalidateMessages');
 
       // Call with options object (new API)
       await act(async () => {
@@ -868,7 +908,7 @@ describe('topic action', () => {
       });
 
       expect(useChatStore.getState().activeTopicId).toBe(topicId);
-      expect(refreshMessagesSpy).not.toHaveBeenCalled();
+      expect(revalidateMessagesSpy).not.toHaveBeenCalled();
     });
 
     it('should clear new key data when switching to null (main scope)', async () => {
@@ -1070,9 +1110,11 @@ describe('topic action', () => {
       expect(useChatStore.getState().activeTopicId).toBe('new-created-topic-id');
     });
 
-    it('should skip refreshMessages for superseded overlapping switches', async () => {
+    it('should skip revalidateMessages for superseded overlapping switches', async () => {
       const { result } = renderHook(() => useChatStore());
-      const refreshSpy = vi.spyOn(result.current, 'refreshMessages').mockResolvedValue(undefined);
+      const revalidateSpy = vi
+        .spyOn(result.current, 'revalidateMessages')
+        .mockResolvedValue(undefined);
 
       // Fire two overlapping switches: the sync body of both runs before
       // either yields, so by the microtask boundary the second has already
@@ -1083,7 +1125,7 @@ describe('topic action', () => {
         await Promise.all([p1, p2]);
       });
 
-      expect(refreshSpy).toHaveBeenCalledTimes(1);
+      expect(revalidateSpy).toHaveBeenCalledTimes(1);
       expect(useChatStore.getState().activeTopicId).toBe('topic-b');
     });
   });
@@ -1101,36 +1143,25 @@ describe('topic action', () => {
         await result.current.removeSessionTopics();
       });
 
-      expect(topicService.removeTopicsByAgentId).toHaveBeenCalledWith(activeAgentId);
+      expect(topicService.removeTopicsByAgentId).toHaveBeenCalledWith(activeAgentId, 'own');
       expect(refreshTopicSpy).toHaveBeenCalled();
       expect(switchTopicSpy).toHaveBeenCalled();
     });
-  });
-  describe('removeGroupTopics', () => {
-    it('should remove all topics for the specified group and refresh state', async () => {
-      const { result } = renderHook(() => useChatStore());
-      const groupId = 'group-delete';
-      const topics = [
-        { id: 'topic-1', title: 'Topic 1' } as ChatTopic,
-        { id: 'topic-2', title: 'Topic 2' } as ChatTopic,
-      ];
 
+    it('forwards explicit workspace scope for an owner full delete', async () => {
+      const { result } = renderHook(() => useChatStore());
       await act(async () => {
-        useChatStore.setState({
-          topicDataMap: {
-            [topicMapKey({ groupId })]: {
-              items: topics,
-              total: topics.length,
-              currentPage: 0,
-              hasMore: false,
-              pageSize: 20,
-            },
-          },
-        });
+        useChatStore.setState({ activeAgentId: 'agent-owner' });
+        await result.current.removeSessionTopics('workspace');
       });
 
-      const batchRemoveSpy = topicService.batchRemoveTopics as Mock;
-      batchRemoveSpy.mockClear();
+      expect(topicService.removeTopicsByAgentId).toHaveBeenCalledWith('agent-owner', 'workspace');
+    });
+  });
+  describe('removeGroupTopics', () => {
+    it('should remove all topics through the group-scoped endpoint and refresh state', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const groupId = 'group-delete';
       const refreshTopicSpy = vi.spyOn(result.current, 'refreshTopic').mockResolvedValue(undefined);
       const switchTopicSpy = vi.spyOn(result.current, 'switchTopic').mockResolvedValue(undefined);
 
@@ -1138,9 +1169,19 @@ describe('topic action', () => {
         await result.current.removeGroupTopics(groupId);
       });
 
-      expect(batchRemoveSpy).toHaveBeenCalledWith(['topic-1', 'topic-2']);
+      expect(topicService.removeTopicsByGroupId).toHaveBeenCalledWith(groupId, 'own');
       expect(refreshTopicSpy).toHaveBeenCalled();
       expect(switchTopicSpy).toHaveBeenCalled();
+    });
+
+    it('forwards explicit workspace scope through the group endpoint', async () => {
+      const { result } = renderHook(() => useChatStore());
+
+      await act(async () => {
+        await result.current.removeGroupTopics('group-owner', 'workspace');
+      });
+
+      expect(topicService.removeTopicsByGroupId).toHaveBeenCalledWith('group-owner', 'workspace');
     });
   });
   describe('removeAllTopics', () => {
@@ -1174,10 +1215,28 @@ describe('topic action', () => {
         await result.current.removeTopic(topicId);
       });
 
-      expect(topicService.removeTopic).toHaveBeenCalledWith(topicId);
+      expect(topicService.removeTopic).toHaveBeenCalledWith(topicId, undefined);
       expect(refreshTopicSpy).toHaveBeenCalled();
       expect(switchTopicSpy).toHaveBeenCalled();
     });
+    it('should forward removeFiles so the topic attachments are deleted', async () => {
+      const topicId = 'topic-1';
+      const { result } = renderHook(() => useChatStore());
+      const activeAgentId = 'test-session-id';
+
+      await act(async () => {
+        useChatStore.setState({ activeAgentId, activeTopicId: topicId });
+      });
+
+      vi.spyOn(result.current, 'refreshTopic').mockResolvedValue(undefined);
+
+      await act(async () => {
+        await result.current.removeTopic(topicId, true);
+      });
+
+      expect(topicService.removeTopic).toHaveBeenCalledWith(topicId, true);
+    });
+
     it('should remove a specific topic and its messages, then not switch topic if not active', async () => {
       const topicId = 'topic-1';
       const { result } = renderHook(() => useChatStore());
@@ -1194,7 +1253,7 @@ describe('topic action', () => {
         await result.current.removeTopic(topicId);
       });
 
-      expect(topicService.removeTopic).toHaveBeenCalledWith(topicId);
+      expect(topicService.removeTopic).toHaveBeenCalledWith(topicId, undefined);
       expect(refreshTopicSpy).toHaveBeenCalled();
       expect(switchTopicSpy).not.toHaveBeenCalled();
     });
@@ -1215,7 +1274,7 @@ describe('topic action', () => {
         await result.current.removeTopic(topicId);
       });
 
-      expect(topicService.removeTopic).toHaveBeenCalledWith(topicId);
+      expect(topicService.removeTopic).toHaveBeenCalledWith(topicId, undefined);
       expect(refreshTopicSpy).toHaveBeenCalled();
       expect(switchTopicSpy).toHaveBeenCalled();
     });
@@ -1272,7 +1331,7 @@ describe('topic action', () => {
       const topicData =
         useChatStore.getState().topicDataMap[topicMapKey({ agentId: activeAgentId })];
 
-      expect(topicService.removeTopic).toHaveBeenCalledWith(topicId);
+      expect(topicService.removeTopic).toHaveBeenCalledWith(topicId, undefined);
       expect(topicData).toMatchObject({
         currentPage: 1,
         hasMore: true,
@@ -1428,6 +1487,35 @@ describe('topic action', () => {
       expect(topicService.batchRemoveTopics).toHaveBeenCalledWith(['topic-1', 'topic-3']);
       expect(refreshTopicSpy).toHaveBeenCalled();
       expect(switchTopicSpy).toHaveBeenCalled();
+    });
+
+    it('removes only the signed-in user’s unstarred topics when onlyOwn is enabled', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const topics = [
+        { id: 'own-unstarred', favorite: false, userId: 'user-1' },
+        { id: 'other-unstarred', favorite: false, userId: 'user-2' },
+        { id: 'own-starred', favorite: true, userId: 'user-1' },
+      ] as ChatTopic[];
+      await act(async () => {
+        useChatStore.setState({
+          activeAgentId: 'abc',
+          topicDataMap: {
+            [topicMapKey({ agentId: 'abc' })]: {
+              currentPage: 0,
+              hasMore: false,
+              items: topics,
+              pageSize: 20,
+              total: topics.length,
+            },
+          },
+        });
+      });
+
+      await act(async () => {
+        await result.current.removeUnstarredTopic({ onlyOwn: true });
+      });
+
+      expect(topicService.batchRemoveTopics).toHaveBeenCalledWith(['own-unstarred']);
     });
   });
   describe('internal_updateTopic', () => {
@@ -1706,6 +1794,118 @@ describe('topic action', () => {
 
       expect(cleaned).toBe(0);
       expect(topicService.updateTopic).not.toHaveBeenCalledWith(topicId, { status: 'active' });
+    });
+  });
+
+  describe('syncScheduledTopicRun', () => {
+    const agentId = 'sync-scheduled-agent';
+    const topicId = 'sync-scheduled-topic';
+    const key = topicMapKey({ agentId });
+
+    const scheduledRun = {
+      createdAt: '2026-07-22T00:00:00.000Z',
+      failedAssistantMessageId: 'assistant-failed',
+      kind: 'resume_after_rate_limit',
+      runAt: '2026-07-22T05:00:00.000Z',
+      source: 'heterogeneous_agent',
+      updatedAt: '2026-07-22T00:00:00.000Z',
+      userMessageId: 'user-1',
+    };
+
+    const seedScheduledTopic = (refreshMessages = vi.fn()) => {
+      const topic = {
+        id: topicId,
+        metadata: { scheduledRun },
+        status: 'scheduled',
+        title: 'Parked topic',
+      } as unknown as ChatTopic;
+
+      act(() => {
+        useChatStore.setState({
+          activeAgentId: agentId,
+          refreshMessages,
+          topicDataMap: {
+            [key]: { currentPage: 0, hasMore: false, items: [topic], pageSize: 20, total: 1 },
+          },
+        });
+      });
+
+      return refreshMessages;
+    };
+
+    it('folds a cron dispatch into the topic map and refetches messages', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const refreshMessages = seedScheduledTopic();
+
+      // The dispatcher has fired: status moved off `scheduled`, the schedule is
+      // cleared and the live operation marker is seeded.
+      const runningOperation = { assistantMessageId: 'assistant-new', operationId: 'op-1' };
+      vi.spyOn(topicService, 'getTopicDetail').mockResolvedValue({
+        id: topicId,
+        metadata: { runningOperation },
+        status: 'running',
+      } as any);
+
+      let synced = false;
+      await act(async () => {
+        synced = await result.current.syncScheduledTopicRun(topicId);
+      });
+
+      expect(synced).toBe(true);
+      // The patched map is what `useGatewayReconnect` reads — without this the
+      // sitting client never attaches to the resumed stream (the original bug).
+      expect(useChatStore.getState().topicDataMap[key].items[0]).toMatchObject({
+        metadata: { runningOperation },
+        status: 'running',
+      });
+      expect(refreshMessages).toHaveBeenCalled();
+    });
+
+    it('is a no-op while the server still parks the topic', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const refreshMessages = seedScheduledTopic();
+
+      vi.spyOn(topicService, 'getTopicDetail').mockResolvedValue({
+        id: topicId,
+        metadata: { scheduledRun },
+        status: 'scheduled',
+      } as any);
+
+      let synced = true;
+      await act(async () => {
+        synced = await result.current.syncScheduledTopicRun(topicId);
+      });
+
+      expect(synced).toBe(false);
+      expect(useChatStore.getState().topicDataMap[key].items[0].status).toBe('scheduled');
+      expect(refreshMessages).not.toHaveBeenCalled();
+    });
+
+    it('does not fetch at all when the store topic is not scheduled', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const refreshMessages = vi.fn();
+      const topic = { id: topicId, status: 'active', title: 'Live topic' } as unknown as ChatTopic;
+
+      act(() => {
+        useChatStore.setState({
+          activeAgentId: agentId,
+          refreshMessages,
+          topicDataMap: {
+            [key]: { currentPage: 0, hasMore: false, items: [topic], pageSize: 20, total: 1 },
+          },
+        });
+      });
+
+      const detailSpy = vi.spyOn(topicService, 'getTopicDetail');
+
+      let synced = true;
+      await act(async () => {
+        synced = await result.current.syncScheduledTopicRun(topicId);
+      });
+
+      expect(synced).toBe(false);
+      expect(detailSpy).not.toHaveBeenCalled();
+      expect(refreshMessages).not.toHaveBeenCalled();
     });
   });
 
@@ -2083,6 +2283,8 @@ describe('topic action', () => {
       });
 
       expect(createTopicSpy).toHaveBeenCalledWith({
+        model: 'deepseek-v4-pro',
+        provider: 'deepseek',
         sessionId: activeAgentId,
         messages: messages.map((m) => m.id),
         title: 'defaultTitle',

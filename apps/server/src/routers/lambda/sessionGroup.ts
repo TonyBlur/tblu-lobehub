@@ -55,6 +55,11 @@ export const sessionGroupRouter = router({
     return ctx.sessionGroupModel.query() as any;
   }),
 
+  // NOTE: no row-level creator check on the mutations below (unlike other
+  // workspace-shared resources). Sidebar organization is a per-member concern
+  // now (section layout / agent membership live in workspace_user_settings),
+  // so folder management stays open to every member holding the
+  // session_group:update/delete scope instead of being creator/owner-gated.
   removeSessionGroup: sessionProcedure
     .use(withScopedPermission('session_group:delete'))
     .input(z.object({ id: z.string(), removeChildren: z.boolean().optional() }))

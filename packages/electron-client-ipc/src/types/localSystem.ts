@@ -135,6 +135,13 @@ export interface LocalFilePreviewUrlParams {
    */
   allowExternalFile?: boolean;
   path: string;
+  /**
+   * Exposes sibling workspace resources through the same short-lived preview
+   * session. Intended for HTML documents whose relative URLs must resolve as
+   * they do on disk. User-approved external files are restricted to their
+   * containing directory.
+   */
+  resourceScope?: 'workspace';
   workingDirectory: string;
 }
 
@@ -183,6 +190,25 @@ export interface LocalReadFileResult {
   filename: string;
   fileType: string;
   /**
+   * File record id of the uploaded image. Present only when
+   * {@link LocalReadFileResult.isImage} is true and the main process
+   * successfully uploaded the bytes to file storage.
+   */
+  imageFileId?: string;
+  /**
+   * Durable URL of the uploaded image. The main process uploads image reads
+   * to file storage directly (base64 never crosses IPC or reaches the DB);
+   * the tool layer forwards this URL to vision models. Absent when the
+   * upload was declined/failed — `content` then carries a placeholder.
+   */
+  imageUrl?: string;
+  /**
+   * True when the path resolves to an image file. The binary is NOT placed
+   * in `content`; instead {@link LocalReadFileResult.imageUrl} references
+   * the uploaded bytes so vision models can inspect the image.
+   */
+  isImage?: boolean;
+  /**
    * Line count of the content within the specified `loc` range.
    */
   lineCount: number;
@@ -230,6 +256,8 @@ export interface LocalSearchFilesParams {
 }
 
 export interface ProjectFileIndexEntry {
+  /** Whether Git ignore rules match this file or directory. */
+  gitIgnored?: boolean;
   isDirectory: boolean;
   name: string;
   path: string;

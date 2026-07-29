@@ -9,11 +9,13 @@ import {
   agentSignalSkillManagementManifest,
 } from '@lobechat/builtin-tool-agent-signal';
 import { BriefManifest } from '@lobechat/builtin-tool-brief';
+import { BrowserManifest } from '@lobechat/builtin-tool-browser';
 import { CalculatorManifest } from '@lobechat/builtin-tool-calculator';
 import { CloudSandboxManifest } from '@lobechat/builtin-tool-cloud-sandbox';
 import { CredsManifest } from '@lobechat/builtin-tool-creds';
 import { GroupAgentBuilderManifest } from '@lobechat/builtin-tool-group-agent-builder';
 import { GroupManagementManifest } from '@lobechat/builtin-tool-group-management';
+import { ImageGenerationManifest } from '@lobechat/builtin-tool-image-generation';
 import { KnowledgeBaseManifest } from '@lobechat/builtin-tool-knowledge-base';
 import { LobeAgentManifest, resolveLobeAgentManifest } from '@lobechat/builtin-tool-lobe-agent';
 import { LobeDeliveryCheckerManifest } from '@lobechat/builtin-tool-lobe-delivery-checker';
@@ -47,6 +49,7 @@ export const defaultToolIds = [
   KnowledgeBaseManifest.identifier,
   MemoryManifest.identifier,
   LocalSystemManifest.identifier,
+  BrowserManifest.identifier,
   CloudSandboxManifest.identifier,
   TopicReferenceManifest.identifier,
   AgentDocumentsManifest.identifier,
@@ -65,9 +68,9 @@ export const defaultToolIds = [
  * skill-activate mode the discovery tools in `manualModeExcludeToolIds` are still removed
  * from the defaults before the enable checker runs, so they end up disabled there.
  *
- * This list is also the source for the chat-input Tools popover's read-only "Pinned"
- * section (`builtinToolSelectors.fixedDisplayMetaList`), so users can see what the app
- * keeps active — that selector applies the same manual-mode exclusion to stay truthful.
+ * This list is also the source for builtin entries in the chat-input Tools popover.
+ * They default to pinned but can be explicitly disabled per agent; entries represented by
+ * the activation mode control itself are excluded from that menu.
  */
 export const alwaysOnToolIds = [
   LobeAgentManifest.identifier,
@@ -75,6 +78,12 @@ export const alwaysOnToolIds = [
   SkillsManifest.identifier,
   SkillStoreManifest.identifier,
 ];
+
+/**
+ * Runtime tools represented by the skill activation mode control itself. They remain part
+ * of the engine defaults but should not appear as independently configurable tool rows.
+ */
+export const activationModeControlledToolIds = [LobeActivatorManifest.identifier];
 
 /**
  * Tool IDs to exclude from defaults when in manual skill-activate mode.
@@ -102,6 +111,7 @@ export const chatModeAllowedToolIds = [
   KnowledgeBaseManifest.identifier,
   MemoryManifest.identifier,
   WebBrowsingManifest.identifier,
+  ImageGenerationManifest.identifier,
 ];
 
 /**
@@ -140,6 +150,7 @@ export const groupSupervisorToolIds = [GroupManagementManifest.identifier];
  * `src/helpers/toolEngineering/index.ts`.
  */
 export const runtimeManagedToolIds = [
+  BrowserManifest.identifier,
   CloudSandboxManifest.identifier,
   KnowledgeBaseManifest.identifier,
   LocalSystemManifest.identifier,
@@ -226,6 +237,13 @@ const builtinToolRegistry: LobeBuiltinTool[] = [
   {
     discoverable: isDesktop,
     hidden: true,
+    identifier: BrowserManifest.identifier,
+    manifest: BrowserManifest,
+    type: 'builtin',
+  },
+  {
+    discoverable: isDesktop,
+    hidden: true,
     identifier: LocalSystemManifest.identifier,
     manifest: LocalSystemManifest,
     type: 'builtin',
@@ -262,6 +280,12 @@ const builtinToolRegistry: LobeBuiltinTool[] = [
     hidden: true,
     identifier: KnowledgeBaseManifest.identifier,
     manifest: KnowledgeBaseManifest,
+    type: 'builtin',
+  },
+  {
+    hidden: true,
+    identifier: ImageGenerationManifest.identifier,
+    manifest: ImageGenerationManifest,
     type: 'builtin',
   },
   {
