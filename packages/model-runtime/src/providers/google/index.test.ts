@@ -49,7 +49,7 @@ const createGoogleThoughtSignatureScope = async ({
   });
 
 // Mock the console.error to avoid polluting test output
-vi.spyOn(console, 'error').mockImplementation(() => { });
+vi.spyOn(console, 'error').mockImplementation(() => {});
 
 let instance: LobeGoogleAI;
 
@@ -868,7 +868,7 @@ describe('LobeGoogleAI', () => {
 
 describe('thinkingConfig includeThoughts logic', () => {
   it('should enable thinking when thinkingBudget is set', async () => {
-    const mockStreamData = (async function* (): AsyncGenerator<GenerateContentResponse> { })();
+    const mockStreamData = (async function* (): AsyncGenerator<GenerateContentResponse> {})();
     vi.spyOn(instance['client'].models, 'generateContentStream').mockResolvedValue(mockStreamData);
 
     await instance.chat({
@@ -884,7 +884,7 @@ describe('thinkingConfig includeThoughts logic', () => {
   });
 
   it('should enable thinking when thinkingLevel is set', async () => {
-    const mockStreamData = (async function* (): AsyncGenerator<GenerateContentResponse> { })();
+    const mockStreamData = (async function* (): AsyncGenerator<GenerateContentResponse> {})();
     vi.spyOn(instance['client'].models, 'generateContentStream').mockResolvedValue(mockStreamData);
 
     await instance.chat({
@@ -900,7 +900,7 @@ describe('thinkingConfig includeThoughts logic', () => {
   });
 
   it('should let API decide thinking for gemini-3-pro-image models without explicit params', async () => {
-    const mockStreamData = (async function* (): AsyncGenerator<GenerateContentResponse> { })();
+    const mockStreamData = (async function* (): AsyncGenerator<GenerateContentResponse> {})();
     vi.spyOn(instance['client'].models, 'generateContentStream').mockResolvedValue(mockStreamData);
 
     await instance.chat({
@@ -931,7 +931,7 @@ describe('thinkingConfig includeThoughts logic', () => {
   });
 
   it('should enable thinking for thinking-enabled models', async () => {
-    const mockStreamData = (async function* (): AsyncGenerator<GenerateContentResponse> { })();
+    const mockStreamData = (async function* (): AsyncGenerator<GenerateContentResponse> {})();
     vi.spyOn(instance['client'].models, 'generateContentStream').mockResolvedValue(mockStreamData);
 
     await instance.chat({
@@ -946,7 +946,7 @@ describe('thinkingConfig includeThoughts logic', () => {
   });
 
   it('should disable thinking when resolvedThinkingBudget is 0', async () => {
-    const mockStreamData = (async function* (): AsyncGenerator<GenerateContentResponse> { })();
+    const mockStreamData = (async function* (): AsyncGenerator<GenerateContentResponse> {})();
     vi.spyOn(instance['client'].models, 'generateContentStream').mockResolvedValue(mockStreamData);
 
     await instance.chat({
@@ -962,7 +962,7 @@ describe('thinkingConfig includeThoughts logic', () => {
   });
 
   it('should add thinkingLevel to config for 3.x models when provided', async () => {
-    const mockStreamData = (async function* (): AsyncGenerator<GenerateContentResponse> { })();
+    const mockStreamData = (async function* (): AsyncGenerator<GenerateContentResponse> {})();
     vi.spyOn(instance['client'].models, 'generateContentStream').mockResolvedValue(mockStreamData);
 
     await instance.chat({
