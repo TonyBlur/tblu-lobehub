@@ -1,4 +1,12 @@
-import { AccordionItem, Center, Flexbox, Icon, Text } from '@lobehub/ui';
+import { Center, Flexbox, Icon } from '@lobehub/ui';
+import {
+  AccordionHeader,
+  AccordionItem,
+  AccordionPanel,
+  AccordionTrigger,
+  Text,
+} from '@lobehub/ui/base-ui';
+import isEqual from 'fast-deep-equal';
 import { memo } from 'react';
 
 import {
@@ -18,46 +26,46 @@ const STATUS_ICON: Record<string, ExecutionStatusVisual> = {
   ...TOPIC_GROUP_VISUALS,
 };
 
-const GroupItem = memo<GroupItemComponentProps>(({ group, activeTopicId, activeThreadId }) => {
+const GroupItem = memo<GroupItemComponentProps>(({ group }) => {
   const { id, title, children } = group;
   const statusIcon = STATUS_ICON[id];
 
   return (
-    <AccordionItem
-      itemKey={id}
-      paddingBlock={4}
-      paddingInline={'8px 4px'}
-      title={
-        <Flexbox horizontal align="center" gap={6} height={24} style={{ overflow: 'hidden' }}>
-          {statusIcon && (
-            <Center flex={'none'} height={16} width={16}>
-              <Icon color={statusIcon.color} icon={statusIcon.icon} size={{ size: 13 }} />
-            </Center>
-          )}
-          <Text ellipsis fontSize={12} style={{ flex: 1 }} type={'secondary'} weight={500}>
-            {title}
-          </Text>
+    <AccordionItem value={id}>
+      <AccordionHeader>
+        <AccordionTrigger style={{ paddingBlock: 4, paddingInline: '8px 4px' }}>
+          <Flexbox horizontal align="center" gap={6} height={24} style={{ overflow: 'hidden' }}>
+            {statusIcon && (
+              <Center flex={'none'} height={16} width={16}>
+                <Icon color={statusIcon.color} icon={statusIcon.icon} size={{ size: 13 }} />
+              </Center>
+            )}
+            <Text ellipsis fontSize={12} style={{ flex: 1 }} type={'secondary'} weight={500}>
+              {title}
+            </Text>
+          </Flexbox>
+        </AccordionTrigger>
+      </AccordionHeader>
+      <AccordionPanel contentStyle={{ padding: 0 }}>
+        <Flexbox gap={1} paddingBlock={1}>
+          {children.map((topic) => (
+            <TopicItem
+              showWorkingDirectory
+              fav={topic.favorite}
+              id={topic.id}
+              key={topic.id}
+              metadata={topic.metadata}
+              status={topic.status}
+              title={topic.title}
+              userId={topic.userId}
+            />
+          ))}
         </Flexbox>
-      }
-    >
-      <Flexbox gap={1} paddingBlock={1}>
-        {children.map((topic) => (
-          <TopicItem
-            showWorkingDirectory
-            active={activeTopicId === topic.id}
-            fav={topic.favorite}
-            id={topic.id}
-            key={topic.id}
-            metadata={topic.metadata}
-            status={topic.status}
-            threadId={activeThreadId}
-            title={topic.title}
-            userId={topic.userId}
-          />
-        ))}
-      </Flexbox>
+      </AccordionPanel>
     </AccordionItem>
   );
-});
+}, isEqual);
+
+GroupItem.displayName = 'TopicByStatusGroupItem';
 
 export default GroupItem;

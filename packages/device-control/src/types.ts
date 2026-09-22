@@ -64,6 +64,29 @@ export interface StatPathResult {
   repoType?: 'git' | 'github';
 }
 
+export interface BrowseDirectoryParams {
+  cursor?: string;
+  limit?: number;
+  path?: string;
+}
+
+export interface BrowseDirectoryEntry {
+  isSymlink: boolean;
+  name: string;
+  path: string;
+  readable: boolean;
+}
+
+export interface BrowseDirectoryResult {
+  entries: BrowseDirectoryEntry[];
+  nextCursor?: string;
+  parentPath: string | null;
+  path: string;
+  pathSeparator: '/' | '\\';
+  roots: string[];
+  truncated: boolean;
+}
+
 // ─── File preview ───
 
 export type LocalFilePreviewAccept = 'image';
@@ -72,6 +95,29 @@ export interface LocalFilePreviewUrlParams {
   accept?: LocalFilePreviewAccept;
   path: string;
   workingDirectory: string;
+}
+
+export interface CopyAssetForPublishParams {
+  from: string;
+  to: string;
+  workingDirectory: string;
+}
+
+export interface CopyAssetForPublishResult {
+  error?: string;
+  success: boolean;
+}
+
+export interface ExternalAssetForPublishParams {
+  path: string;
+  workingDirectory: string;
+}
+
+export interface ExternalAssetForPublishResult {
+  base64?: string;
+  contentType?: string;
+  error?: string;
+  success: boolean;
 }
 
 export interface LocalFilePreviewText {
@@ -86,13 +132,27 @@ export interface LocalFilePreviewImage {
   type: 'image';
 }
 
+/**
+ * Binary document (pdf / office) small enough to preview in-app, carried as
+ * base64 so it survives RPC serialization. Oversized documents stay on the
+ * `binary` / `pdf` unsupported variants.
+ */
+export interface LocalFilePreviewDocument {
+  base64: string;
+  contentType: string;
+  type: 'document';
+}
+
 export interface LocalFilePreviewUnsupported {
   contentType: string;
   type: 'binary' | 'pdf' | 'video';
 }
 
 export type LocalFilePreview =
-  LocalFilePreviewImage | LocalFilePreviewText | LocalFilePreviewUnsupported;
+  | LocalFilePreviewDocument
+  | LocalFilePreviewImage
+  | LocalFilePreviewText
+  | LocalFilePreviewUnsupported;
 
 export interface LocalFilePreviewResult {
   error?: string;
@@ -103,6 +163,13 @@ export interface LocalFilePreviewResult {
 // ─── Project file index ───
 
 export interface ProjectFileIndexEntry {
+  /**
+   * Directory whose children were deliberately left out of the index because
+   * Git collapsed it (`git ls-files --directory` reports a fully ignored
+   * directory as a single entry). The row is expandable, but its children must
+   * be fetched on demand via `listProjectDirectory`.
+   */
+  collapsed?: boolean;
   /** Whether Git ignore rules match this file or directory. */
   gitIgnored?: boolean;
   isDirectory: boolean;
@@ -123,7 +190,24 @@ export interface ProjectFileIndexResult {
   source: 'git' | 'glob';
 }
 
+export interface ProjectDirectoryListParams {
+  /** Cap on returned children; the caller is told when more exist. */
+  limit?: number;
+  /** Directory to list, relative to `root`. A trailing slash is tolerated. */
+  relativePath: string;
+  /** Project root the returned `relativePath`s are resolved against. */
+  root: string;
+}
+
+export interface ProjectDirectoryListResult {
+  entries: ProjectFileIndexEntry[];
+  /** True when the directory holds more children than `limit` returned. */
+  truncated: boolean;
+}
+
 export interface ProjectFileSearchParams extends ProjectFileIndexParams {
+  changedOnly?: boolean;
+  excludeIgnored?: boolean;
   limit?: number;
   query: string;
 }
@@ -189,6 +273,8 @@ export interface WorkspaceScanDeps {
  *   (`defaultGetLocalFilePreview`, `defaultGetProjectFileIndex`).
  */
 export interface DeviceControlDeps extends SkillDirectoryDeps, WorkspaceScanDeps {
+  /** Copy a publish asset (possibly outside the workspace) to a path inside the workspace. */
+  copyAssetForPublish?: (params: CopyAssetForPublishParams) => Promise<CopyAssetForPublishResult>;
   /**
    * Enroll this machine into a workspace pool: derive the workspace-scoped
    * deviceId and open a second gateway connection authenticated with `token`
@@ -207,6 +293,10 @@ export interface DeviceControlDeps extends SkillDirectoryDeps, WorkspaceScanDeps
   listHeterogeneousAgentModels?: (
     params: ListHeterogeneousAgentModelsParams,
   ) => Promise<HeterogeneousAgentModelCatalog>;
+  /** Read raw bytes after the user explicitly approved an external publish closure. */
+  readExternalAssetForPublish?: (
+    params: ExternalAssetForPublishParams,
+  ) => Promise<ExternalAssetForPublishResult>;
   /** Search project files without shipping the whole index to the caller. */
   searchProjectFiles: (params: ProjectFileSearchParams) => Promise<ProjectFileSearchResult>;
   /**
@@ -224,14 +314,25 @@ export interface DeviceControlDeps extends SkillDirectoryDeps, WorkspaceScanDeps
  * Kept local so device-control remains a leaf package with no app/type-layer dependency.
  */
 export interface ListHeterogeneousAgentModelsParams {
+  args?: string[];
   command?: string;
   cwd?: string;
   env?: Record<string, string>;
-  type: 'opencode';
+  type:
+    | 'codebuddy'
+    | 'cursor'
+    | 'devin'
+    | 'droid'
+    | 'grok-build'
+    | 'opencode'
+    | 'pi'
+    | 'qoder'
+    | 'trae';
 }
 
 export interface HeterogeneousAgentModelCatalogItem {
   id: string;
+  label?: string;
   modelId: string;
   providerId: string;
 }

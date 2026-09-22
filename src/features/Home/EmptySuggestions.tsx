@@ -1,5 +1,5 @@
-import { Flexbox, Icon, Text } from '@lobehub/ui';
-import { Button } from '@lobehub/ui/base-ui';
+import { Flexbox, Icon } from '@lobehub/ui';
+import { Button, Text } from '@lobehub/ui/base-ui';
 import { createStaticStyles } from 'antd-style';
 import { FileTextIcon, ListTodoIcon, SearchIcon } from 'lucide-react';
 import { memo } from 'react';
@@ -53,7 +53,10 @@ const EmptySuggestions = memo<EmptySuggestionsProps>(({ onSelect }) => {
   const { t } = useTranslation('home');
 
   return (
-    <Flexbox gap={8}>
+    // Inset from the column edge: the composer above and the list rows below
+    // are both padded surfaces, so a flush-left block here reads as hanging
+    // outside the page's own rhythm.
+    <Flexbox gap={12} paddingBlock={8} paddingInline={12}>
       <Flexbox gap={2}>
         <Text className={homeType.sectionLabel}>{t('dashboard.empty.title')}</Text>
         <Text className={homeType.supporting}>{t('dashboard.empty.subtitle')}</Text>

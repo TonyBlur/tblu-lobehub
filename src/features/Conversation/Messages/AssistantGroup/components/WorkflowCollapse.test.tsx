@@ -10,62 +10,10 @@ import type { AssistantContentBlock } from '@/types/index';
 import WorkflowCollapse from './WorkflowCollapse';
 
 let mockIsGenerating = true;
+let mockDbMessages: { createdAt?: Date; id: string; updatedAt?: Date }[] = [];
 
-vi.mock('@lobehub/ui', () => ({
-  Accordion: ({
-    children,
-    expandedKeys,
-    onExpandedChange,
-  }: {
-    children?: ReactNode;
-    expandedKeys?: string[];
-    onExpandedChange?: (keys: string[]) => void;
-  }) => {
-    const isExpanded = (expandedKeys ?? []).includes('workflow');
-    return (
-      <div data-expanded-keys={JSON.stringify(expandedKeys ?? [])} data-testid="workflow-accordion">
-        <button
-          aria-label="toggle-accordion-header"
-          type="button"
-          onClick={() => onExpandedChange?.(isExpanded ? [] : ['workflow'])}
-        />
-        {children}
-      </div>
-    );
-  },
-  AccordionItem: ({
-    action,
-    children,
-    title,
-  }: {
-    action?: ReactNode;
-    children?: ReactNode;
-    title?: ReactNode;
-  }) => (
-    <div>
-      <div>{title}</div>
-      <div>{action}</div>
-      <div>{children}</div>
-    </div>
-  ),
-  // Needs to resolve to a `button` with an accessible name that matches the
-  // `title` prop so the tests' `getByRole('button', { name: 'Expand fully' })`
-  // assertions can find the expand toggle.
-  ActionIcon: ({
-    icon: IconComponent,
-    onClick,
-    title,
-  }: {
-    icon?: ComponentType;
-    onClick?: (e: unknown) => void;
-    title?: string;
-  }) => (
-    <button aria-label={title} type="button" onClick={onClick}>
-      {IconComponent ? <IconComponent /> : null}
-    </button>
-  ),
-  Block: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
-  Flexbox: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+vi.mock('@lobehub/ui', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
   Icon: ({ icon: IconComponent }: { icon?: ComponentType }) =>
     IconComponent ? (
       <div
@@ -77,20 +25,51 @@ vi.mock('@lobehub/ui', () => ({
     ) : (
       <div />
     ),
-  ShikiLobeTheme: {},
-  Text: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
+}));
+
+vi.mock('@lobehub/ui/base-ui', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  ...(await import('~base-ui-stubs')).baseUiStubs,
+  Accordion: ({
+    items,
+    onValueChange,
+    value,
+  }: {
+    items?: { action?: ReactNode; children?: ReactNode; key: string; title?: ReactNode }[];
+    onValueChange?: (keys: string[]) => void;
+    value?: string[];
+  }) => {
+    const isExpanded = (value ?? []).includes('workflow');
+    return (
+      <div data-expanded-keys={JSON.stringify(value ?? [])} data-testid="workflow-accordion">
+        <button
+          aria-label="toggle-accordion-header"
+          type="button"
+          onClick={() => onValueChange?.(isExpanded ? [] : ['workflow'])}
+        />
+        {items?.map((item) => (
+          <div key={item.key}>
+            <div>{item.title}</div>
+            <div>{item.action}</div>
+            <div>{item.children}</div>
+          </div>
+        ))}
+      </div>
+    );
+  },
 }));
 
 vi.mock('motion/react', () => ({
   AnimatePresence: ({ children }: { children?: ReactNode }) => <>{children}</>,
-  m: {
-    div: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => (
-      <div {...props}>{children}</div>
-    ),
-    span: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => (
-      <span {...props}>{children}</span>
-    ),
-  },
+}));
+
+vi.mock('motion/react-m', () => ({
+  div: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => (
+    <div {...props}>{children}</div>
+  ),
+  span: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => (
+    <span {...props}>{children}</span>
+  ),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -131,7 +110,8 @@ vi.mock('../../../store', () => ({
     isAssistantGroupItemGenerating: () => () => mockIsGenerating,
     isMessageGenerating: () => () => mockIsGenerating,
   },
-  useConversationStore: (selector: (state: unknown) => unknown) => selector({}),
+  useConversationStore: (selector: (state: unknown) => unknown) =>
+    selector({ dbMessages: mockDbMessages }),
 }));
 
 vi.mock('./WorkflowExpandedList', () => ({
@@ -162,6 +142,7 @@ describe('WorkflowCollapse', () => {
   afterEach(() => {
     cleanup();
     mockIsGenerating = true;
+    mockDbMessages = [];
     vi.useRealTimers();
   });
 
@@ -221,6 +202,74 @@ describe('WorkflowCollapse', () => {
     expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
   });
 
+  it('auto-collapses on completion by default', () => {
+    const { rerender } = render(
+      <WorkflowCollapse assistantMessageId="msg-1" blocks={makeBlocks()} />,
+    );
+
+    expect(getExpandedKeys()).toBe('["workflow"]');
+
+    mockIsGenerating = false;
+    rerender(
+      <WorkflowCollapse
+        assistantMessageId="msg-1"
+        blocks={makeBlocks({ result: { content: 'ok' } })}
+      />,
+    );
+
+    expect(getExpandedKeys()).toBe('[]');
+  });
+
+  it('skips the completion auto-collapse while suppressAutoCollapse is set', () => {
+    // Regression: the animated semi → collapsed transition used to run right
+    // before the parent folded the whole workflow into ProcessFold, shrinking
+    // the layout twice and making the conversation visibly jitter.
+    const { rerender } = render(
+      <WorkflowCollapse suppressAutoCollapse assistantMessageId="msg-1" blocks={makeBlocks()} />,
+    );
+
+    expect(getExpandedKeys()).toBe('["workflow"]');
+
+    mockIsGenerating = false;
+    rerender(
+      <WorkflowCollapse
+        suppressAutoCollapse
+        assistantMessageId="msg-1"
+        blocks={makeBlocks({ result: { content: 'ok' } })}
+      />,
+    );
+
+    expect(getExpandedKeys()).toBe('["workflow"]');
+  });
+
+  it('collapses late when suppressAutoCollapse is released after completion', () => {
+    // The turn ended but never folded (e.g. tool-only turn with no final
+    // answer), so nothing else collapses the workflow — the late release must.
+    const { rerender } = render(
+      <WorkflowCollapse suppressAutoCollapse assistantMessageId="msg-1" blocks={makeBlocks()} />,
+    );
+
+    mockIsGenerating = false;
+    rerender(
+      <WorkflowCollapse
+        suppressAutoCollapse
+        assistantMessageId="msg-1"
+        blocks={makeBlocks({ result: { content: 'ok' } })}
+      />,
+    );
+    expect(getExpandedKeys()).toBe('["workflow"]');
+
+    rerender(
+      <WorkflowCollapse
+        assistantMessageId="msg-1"
+        blocks={makeBlocks({ result: { content: 'ok' } })}
+        suppressAutoCollapse={false}
+      />,
+    );
+
+    expect(getExpandedKeys()).toBe('[]');
+  });
+
   it('auto expands and switches the header when confirmation is pending', async () => {
     render(
       <WorkflowCollapse
@@ -272,6 +321,102 @@ describe('WorkflowCollapse', () => {
     });
 
     expect(screen.getByText('(4s)')).toBeInTheDocument();
+  });
+
+  it("counts elapsed time from this collapse's first step, not the whole run", () => {
+    // Regression: a long turn folds into several collapses. Anchoring the timer
+    // to the operation start made every fold print the same run-long number —
+    // the elapsed time must cover this fold's own steps only.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-20T10:00:00Z'));
+    mockDbMessages = [
+      { createdAt: new Date('2026-09-20T09:00:00Z'), id: 'block-0' },
+      { createdAt: new Date('2026-09-20T09:59:50Z'), id: 'block-1' },
+    ];
+
+    render(<WorkflowCollapse assistantMessageId="msg-1" blocks={makeBlocks()} />);
+
+    expect(screen.getByText('(10s)')).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(screen.getByText('(12s)')).toBeInTheDocument();
+  });
+
+  it('reports a finished fold as wall-clock time, not summed model duration', () => {
+    // Regression: `performance.duration` only counts model output, so a fold
+    // that sat in tool calls for two minutes advertised a few seconds.
+    mockIsGenerating = false;
+    mockDbMessages = [
+      { createdAt: new Date('2026-09-20T09:00:00Z'), id: 'block-1' },
+      { createdAt: new Date('2026-09-20T09:02:00Z'), id: 'tool-result-1' },
+    ];
+
+    const blocks = makeBlocks({ result: { content: 'ok' }, result_msg_id: 'tool-result-1' });
+    blocks[0]!.performance = { duration: 4000 } as any;
+
+    render(<WorkflowCollapse assistantMessageId="msg-1" blocks={blocks} />);
+
+    expect(screen.getByText('2m')).toBeInTheDocument();
+    expect(screen.queryByText('4s')).not.toBeInTheDocument();
+  });
+
+  it('counts a client-executed tool from its result write, not from its start', () => {
+    // Regression: the client runtime creates the tool row BEFORE invoking the
+    // tool and writes the result into it afterwards, so `createdAt` is when the
+    // tool STARTED. Ending the fold there left the tool's whole runtime out.
+    mockIsGenerating = false;
+    mockDbMessages = [
+      { createdAt: new Date('2026-09-20T09:00:00Z'), id: 'block-1' },
+      {
+        createdAt: new Date('2026-09-20T09:00:05Z'),
+        id: 'tool-result-1',
+        updatedAt: new Date('2026-09-20T09:03:05Z'),
+      },
+    ];
+
+    const blocks = makeBlocks({ result: { content: 'ok' }, result_msg_id: 'tool-result-1' });
+
+    render(<WorkflowCollapse assistantMessageId="msg-1" blocks={blocks} />);
+
+    expect(screen.getByText('3m 5s')).toBeInTheDocument();
+    expect(screen.queryByText('5s')).not.toBeInTheDocument();
+  });
+
+  it('ignores a later edit of the assistant step itself', () => {
+    // An assistant row's `updatedAt` also moves when the message is edited long
+    // after the turn; only tool results may extend the fold.
+    mockIsGenerating = false;
+    mockDbMessages = [
+      {
+        createdAt: new Date('2026-09-20T09:00:00Z'),
+        id: 'block-1',
+        updatedAt: new Date('2026-09-21T09:00:00Z'),
+      },
+      { createdAt: new Date('2026-09-20T09:02:00Z'), id: 'tool-result-1' },
+    ];
+
+    const blocks = makeBlocks({ result: { content: 'ok' }, result_msg_id: 'tool-result-1' });
+
+    render(<WorkflowCollapse assistantMessageId="msg-1" blocks={blocks} />);
+
+    expect(screen.getByText('2m')).toBeInTheDocument();
+  });
+
+  it('falls back to model duration when the raw messages are unavailable', () => {
+    // Share pages / portals render blocks without `dbMessages`; a rough number
+    // still beats no number at all.
+    mockIsGenerating = false;
+    mockDbMessages = [];
+
+    const blocks = makeBlocks({ result: { content: 'ok' } });
+    blocks[0]!.performance = { duration: 4000 } as any;
+
+    render(<WorkflowCollapse assistantMessageId="msg-1" blocks={blocks} />);
+
+    expect(screen.getByText('4s')).toBeInTheDocument();
   });
 
   it('cycles expand levels via the toggle button', () => {
@@ -387,7 +532,7 @@ describe('WorkflowCollapse', () => {
     expect(icon).toHaveAttribute('data-icon', 'Check');
   });
 
-  it('shows check with a warning badge when some tools fail after completion', () => {
+  it('shows only a check when some tools fail after completion', () => {
     mockIsGenerating = false;
     const blocks: AssistantContentBlock[] = [
       {
@@ -418,7 +563,7 @@ describe('WorkflowCollapse', () => {
     const icons = screen.getAllByTestId('icon');
     const iconNames = icons.map((node) => node.getAttribute('data-icon'));
     expect(iconNames).toContain('Check');
-    expect(iconNames).toContain('TriangleAlert');
+    expect(iconNames).not.toContain('TriangleAlert');
   });
 
   it('shows red x when all tools fail after completion', () => {

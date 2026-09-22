@@ -1,10 +1,9 @@
-import { App } from 'antd';
+import { toast } from '@lobehub/ui/base-ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useEventCallback } from '@/hooks/useEventCallback';
 import { useTreeStore } from '@/store/tree';
-import { isForbiddenError } from '@/utils/forbiddenError';
 
 interface UseFileListItemRenameOptions {
   id: string;
@@ -21,14 +20,13 @@ export const useFileListItemRename = ({
   id,
   isPendingRename,
   isFolder,
-  libraryId,
   name,
   refreshFileList,
   setPendingRenameItemId,
   updateResource,
 }: UseFileListItemRenameOptions) => {
   const { t } = useTranslation(['components', 'file', 'common']);
-  const { message } = App.useApp();
+
   const [isRenaming, setIsRenaming] = useState(false);
   const [renamingValue, setRenamingValue] = useState(name || '');
   const inputRef = useRef<any>(null);
@@ -49,7 +47,7 @@ export const useFileListItemRename = ({
     isConfirmingRef.current = true;
 
     if (!renamingValue.trim()) {
-      message.error(t('FileManager.actions.renameError'));
+      toast.error(t('FileManager.actions.renameError'));
       isConfirmingRef.current = false;
       return;
     }
@@ -68,15 +66,11 @@ export const useFileListItemRename = ({
       useTreeStore.getState().revalidate(parentId);
       await refreshFileList({ revalidateResources: false });
 
-      message.success(t('FileManager.actions.renameSuccess'));
+      toast.success(t('FileManager.actions.renameSuccess'));
       setIsRenaming(false);
     } catch (error) {
       console.error('Rename error:', error);
-      message.error(
-        isForbiddenError(error)
-          ? t('manageOnlyCreator', { ns: 'common' })
-          : t('FileManager.actions.renameError'),
-      );
+      toast.error(t('FileManager.actions.renameError'));
     } finally {
       isConfirmingRef.current = false;
     }

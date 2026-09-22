@@ -1,8 +1,15 @@
 import type { TopicCommentItem } from '@lobechat/types';
-import { ActionIcon, Avatar, Flexbox, Icon, Markdown, Text } from '@lobehub/ui';
+import { Flexbox, Icon, Markdown } from '@lobehub/ui';
 import type { DropdownItem } from '@lobehub/ui/base-ui';
-import { Button, confirmModal, DropdownMenu } from '@lobehub/ui/base-ui';
-import { App } from 'antd';
+import {
+  ActionIcon,
+  Avatar,
+  Button,
+  confirmModal,
+  DropdownMenu,
+  Text,
+  toast,
+} from '@lobehub/ui/base-ui';
 import { MessageCircle, MoreHorizontal, Pencil, Trash } from 'lucide-react';
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -56,7 +63,7 @@ const CommentCard = memo<CommentCardProps>(
     rootReplyCount,
   }) => {
     const { t } = useTranslation('chat');
-    const { message } = App.useApp();
+
     const { text: time, title: timeTitle } = useActivityTime(comment.createdAt);
     const { mutatingIds, remove, restore, update } = useTopicCommentMutations();
     const [editing, setEditing] = useState(false);
@@ -85,9 +92,9 @@ const CommentCard = memo<CommentCardProps>(
         onMutated?.();
       } catch {
         setEditing(true);
-        message.error(t('topicComment.updateFailed'));
+        toast.error(t('topicComment.updateFailed'));
       }
-    }, [comment, message, mutating, nextContent, nextEditorData, onMutated, t, update]);
+    }, [comment, mutating, nextContent, nextEditorData, onMutated, t, update]);
 
     const handleDelete = useCallback(() => {
       confirmModal({
@@ -101,21 +108,21 @@ const CommentCard = memo<CommentCardProps>(
               onMutated?.();
             })
             .catch(() => {
-              message.error(t('topicComment.deleteFailed'));
+              toast.error(t('topicComment.deleteFailed'));
             });
         },
         title: t('topicComment.deleteConfirm.title'),
       });
-    }, [comment, message, onDeleted, onMutated, remove, replyCount, rootReplyCount, t]);
+    }, [comment, onDeleted, onMutated, remove, replyCount, rootReplyCount, t]);
 
     const handleRestore = useCallback(async () => {
       try {
         await restore(comment, { rootReplyCount: replyCount });
         onMutated?.();
       } catch {
-        message.error(t('topicComment.restoreFailed'));
+        toast.error(t('topicComment.restoreFailed'));
       }
-    }, [comment, message, onMutated, replyCount, restore, t]);
+    }, [comment, onMutated, replyCount, restore, t]);
 
     const menuItems = useMemo<DropdownItem[]>(() => {
       const items: DropdownItem[] = [];

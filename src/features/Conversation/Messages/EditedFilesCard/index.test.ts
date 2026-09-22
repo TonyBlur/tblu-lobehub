@@ -4,6 +4,7 @@ import { createElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import EditedFilesCard, {
+  AGGREGATE_EDITED_FILE_ICON_SIZE,
   getEditedFileIconName,
   getEditedFilesCardMode,
   SINGLE_EDITED_FILE_ICON_SIZE,
@@ -24,6 +25,7 @@ const singleEntry = {
   linesAdded: 7,
   linesDeleted: 2,
   path: '/workspace/Acceptance/index.tsx',
+  sandboxBacked: false,
   sourceToolCallIds: ['tool-1'],
 };
 
@@ -47,14 +49,29 @@ describe('getFilePathDisplayInfo', () => {
   it('keeps the parent directory and basename for long absolute paths', () => {
     expect(getFilePathDisplayInfo('/very/long/workspace/Acceptance/index.tsx')).toEqual({
       displayPath: 'Acceptance/index.tsx',
+      isImage: false,
       name: 'index.tsx',
+    });
+  });
+
+  it('marks image files so they render a lucide image icon instead of a file-type icon', () => {
+    expect(getFilePathDisplayInfo('/workspace/tmp/r24-studio-crop.PNG')).toEqual({
+      displayPath: 'tmp/r24-studio-crop.PNG',
+      isImage: true,
+      name: 'r24-studio-crop.PNG',
     });
   });
 });
 
 describe('SINGLE_EDITED_FILE_ICON_SIZE', () => {
-  it('keeps the single-file icon container compact', () => {
+  it('matches the height of the two-line title block beside it', () => {
     expect(SINGLE_EDITED_FILE_ICON_SIZE).toBe(40);
+  });
+});
+
+describe('AGGREGATE_EDITED_FILE_ICON_SIZE', () => {
+  it('matches the single-file card so stacked cards share one icon scale', () => {
+    expect(AGGREGATE_EDITED_FILE_ICON_SIZE).toBe(40);
   });
 });
 
@@ -69,7 +86,7 @@ describe('SingleEditedFileCard', () => {
     expect(summary).toHaveTextContent('+7');
     expect(summary).toHaveTextContent('-2');
     expect(summary).not.toContainElement(action);
-    expect(action).toHaveAttribute('data-view-changes');
+    expect(action.closest('[data-view-changes]')).not.toBeNull();
     expect(action).toHaveAttribute('aria-expanded', 'false');
 
     fireEvent.click(action);

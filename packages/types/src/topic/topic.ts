@@ -1,5 +1,8 @@
+import type { AiModelReasoningConfig } from 'model-bank';
+import { AiModelReasoningConfigSchema } from 'model-bank/aiModel';
 import { z } from 'zod';
 
+import type { HeterogeneousReasoningEffort } from '../agent/heteroSelectorCapabilities';
 import type { SerializedAgentHook } from '../agentHook';
 import { serializedAgentHookSchema } from '../agentHook';
 import type { WorkingDirConfig } from '../device';
@@ -21,7 +24,7 @@ export type TopicSortBy = 'createdAt' | 'updatedAt';
  * Server-side ordering for the topic list query.
  * - `updatedAt` (default): favorites first, then most-recently-updated.
  * - `status`: favorites first, then by status priority
- *   (waitingForHuman → running → active → paused → failed → completed →
+ *   (waitingForHuman → running → active → failed → completed →
  *   archived), then most-recently-updated within each status. Backs the
  *   sidebar "group by status" mode so the highest-priority topics stay on the
  *   first page regardless of pagination.
@@ -111,9 +114,40 @@ export interface OnboardingSessionSnapshot {
 }
 
 export interface ChatTopicMetadata {
+  /** Watermark written by the background topic-summary workflow. */
+  autoSummary?: {
+    lastMessageId: string;
+    lastMessageUpdatedAt: string;
+    summarizedAt: string;
+    version: number;
+  };
   bot?: ChatTopicBotContext;
   boundDeviceId?: string;
   cronJobId?: string;
+  /**
+   * The agent whose Profile page this Agent Builder conversation was started
+   * from (mirrors `ExecAgentAppContext.editingAgentId`).
+   *
+   * Recorded for the same reason as {@link editingGroupId} — see there.
+   */
+  editingAgentId?: string;
+  /**
+   * The group whose Profile page this Group Agent Builder conversation was
+   * started from (mirrors `ExecAgentAppContext.editingGroupId`).
+   *
+   * Builder panels run on one builtin agent shared by every target, and their
+   * topics carry no `groupId` / `sessionId` on purpose — those columns would
+   * pull the builder's side-conversation into the target's own chat read path.
+   * So nothing else in the row records what the conversation was configuring.
+   *
+   * Showing the builder's full build history in one list is intentional, so
+   * nothing filters on this today. It is captured because it can only be
+   * captured now: the association exists solely at run time, and a topic
+   * written without it can never be attributed afterwards.
+   */
+  editingGroupId?: string;
+  /** Restored-history tail used as the source message for eval attempt threads. */
+  evalHistoryTailMessageId?: string;
   /**
    * Scoped pointer to the currently active assistant message for a running
    * heterogeneous agent operation. Includes `operationId` so cold-start
@@ -122,6 +156,22 @@ export interface ChatTopicMetadata {
    * Updated on every step boundary.
    */
   heteroCurrentMsgId?: { msgId: string; operationId: string };
+  /**
+   * Topic-pinned reasoning effort for a heterogeneous agent (Claude Code /
+   * Codex / …). Snapshotted from `agencyConfig.heterogeneousProvider.effort`
+   * when the topic is created and overwritten when the user picks an effort
+   * while the topic is active, so a single session can run at a higher effort
+   * without retuning the agent. Resolved as "topic effort if present, else the
+   * agent's effort" by `applyTopicModelToHeterogeneousProvider`.
+   */
+  heteroEffort?: HeterogeneousReasoningEffort;
+  /**
+   * Secret-free identity of the provider/auth binding that created
+   * `heteroSessionId`. Resume is allowed only when this identity still matches.
+   */
+  heteroSessionBindingKey?: string;
+  /** Binding identities paired with `heteroSessionIdByWorkingDirectory`. */
+  heteroSessionBindingKeyByWorkingDirectory?: Record<string, string>;
   /**
    * Persistent session id for a heterogeneous agent.
    * Saved after each turn so the next message in the same topic can resume
@@ -158,6 +208,12 @@ export interface ChatTopicMetadata {
   /** origin marker for imported topics, e.g. `claude-code-local` / `codex-local` */
   importedFrom?: string;
   /**
+   * Root operation that most recently consumed `runningOperation`.
+   * Used to scope a post-terminal `unread` → `active` correction when the
+   * watching client receives the terminal event after the server cleared the marker.
+   */
+  lastSettledOperationId?: string;
+  /**
    * Measured dominant model by token volume, written by the usage roll-up
    * (`topicUsage.recompute`). This is an analytics projection of "what actually
    * ran", NOT the topic's configured model — the pinned/config model lives in
@@ -173,6 +229,18 @@ export interface ChatTopicMetadata {
   /** Measured dominant provider by token volume — see {@link ChatTopicMetadata.model}. */
   provider?: string;
   /**
+   * Topic-pinned reasoning effort / mode for the pinned API model
+   * (`ChatTopic.model`). Mirrors the model pin: snapshotted from the user's
+   * model-instance reasoning config when the topic is created, re-snapshotted
+   * for the new model when the user switches model while the topic is active,
+   * and overwritten when the user picks an effort while the topic is active.
+   * Generation resolves "topic config if present (and its pinned model matches
+   * the run model), else the user-level model-instance config" — see
+   * `resolveEffectiveReasoningChatConfig`. An empty object is a valid snapshot:
+   * it pins the topic to the model's own defaults.
+   */
+  reasoningConfig?: AiModelReasoningConfig;
+  /**
    * Web (cloud) only. Ordered list of GitHub repos selected for this topic.
    * Each repo will be cloned into the Gateway sandbox before execution.
    * `workingDirectory` is kept in sync with repos[0] (the primary repo).
@@ -185,6 +253,26 @@ export interface ChatTopicMetadata {
    */
   runningOperation?: {
     assistantMessageId: string;
+    childOperations?: Array<{
+      assistantMessageId: string;
+      deviceId?: string;
+      deviceUserId?: string;
+      deviceWorkspaceId?: string;
+      heteroType?: string | null;
+      hooks?: SerializedAgentHook[];
+      operationId: string;
+      orchestrationRole?: 'supervisor' | 'member';
+      scope?: string;
+      threadId?: string | null;
+    }>;
+    /** Device selected for a notify-based platform task. */
+    deviceId?: string;
+    /** Personal-device owner used to route dispatch and cancellation through the same principal. */
+    deviceUserId?: string;
+    /** Workspace principal used for a workspace-enrolled device. */
+    deviceWorkspaceId?: string;
+    /** Notify-based platform type used to select the cancellation protocol. */
+    heteroType?: string | null;
     /**
      * Serialized lifecycle hooks (onComplete / onError) registered for this run.
      *
@@ -201,7 +289,18 @@ export interface ChatTopicMetadata {
      */
     hooks?: SerializedAgentHook[];
     operationId: string;
+    orchestrationRole?: 'supervisor' | 'member';
     scope?: string;
+    /**
+     * When this run claimed the topic, as an ISO string. This marker gates every
+     * background existing-topic start (`TopicModel.tryReserveTaskCallback`), so
+     * without a liveness stamp a run that dies before clearing it holds the
+     * topic hostage forever.
+     *
+     * Optional for back-compat: markers written before this field existed carry
+     * no stamp and cannot be proven live.
+     */
+    startedAt?: string;
     threadId?: string | null;
   } | null;
   /**
@@ -210,6 +309,17 @@ export interface ChatTopicMetadata {
    * `runningOperation`); every reader treats a nullish value as "not scheduled".
    */
   scheduledRun?: TopicScheduledRun | null;
+  /**
+   * Short-lived ownership marker used while a task result is being appended
+   * and its continuation is being dispatched. Callback deliveries acquire
+   * this only when `runningOperation` is empty, which serializes callback
+   * bursts behind the foreground turn without holding a database transaction
+   * open while the agent operation starts.
+   */
+  taskCallbackReservation?: {
+    messageId: string;
+    reservedAt: string;
+  } | null;
   userMemoryExtractRunState?: TopicUserMemoryExtractRunState;
   userMemoryExtractStatus?: 'pending' | 'completed' | 'failed';
   /**
@@ -385,9 +495,13 @@ export const parseTopicScheduledRun = (raw: unknown): TopicScheduledRun | null =
   };
 };
 
-/** Metadata patch accepted by the topic update API. */
 export const chatTopicMetadataUpdateSchema = z.object({
   boundDeviceId: z.string().optional(),
+  heteroEffort: z
+    .custom<HeterogeneousReasoningEffort>((value) => typeof value === 'string')
+    .optional(),
+  heteroSessionBindingKey: z.string().optional(),
+  heteroSessionBindingKeyByWorkingDirectory: z.record(z.string(), z.string()).optional(),
   heteroSessionId: z.string().optional(),
   heteroSessionIdByWorkingDirectory: z.record(z.string(), z.string()).optional(),
   model: z.string().optional(),
@@ -424,20 +538,59 @@ export const chatTopicMetadataUpdateSchema = z.object({
     })
     .optional(),
   provider: z.string().optional(),
+  lastSettledOperationId: z.string().optional(),
+  reasoningConfig: AiModelReasoningConfigSchema.optional(),
   repos: z.array(z.string()).optional(),
   runningOperation: z
     .object({
       assistantMessageId: z.string(),
+      childOperations: z
+        .array(
+          z.object({
+            assistantMessageId: z.string(),
+            deviceId: z.string().optional(),
+            deviceUserId: z.string().optional(),
+            deviceWorkspaceId: z.string().optional(),
+            heteroType: z.string().nullable().optional(),
+            hooks: z.array(serializedAgentHookSchema).optional(),
+            operationId: z.string(),
+            orchestrationRole: z.enum(['supervisor', 'member']).optional(),
+            scope: z.string().optional(),
+            threadId: z.string().nullish(),
+          }),
+        )
+        .optional(),
+      deviceId: z.string().optional(),
+      deviceUserId: z.string().optional(),
+      deviceWorkspaceId: z.string().optional(),
+      heteroType: z.string().nullable().optional(),
       hooks: z.array(serializedAgentHookSchema).optional(),
       operationId: z.string(),
+      orchestrationRole: z.enum(['supervisor', 'member']).optional(),
       scope: z.string().optional(),
       threadId: z.string().nullish(),
+    })
+    .nullable()
+    .optional(),
+  taskCallbackReservation: z
+    .object({
+      messageId: z.string(),
+      reservedAt: z.string(),
     })
     .nullable()
     .optional(),
   scheduledRun: topicScheduledRunSchema.nullish(),
   workingDirectory: z.string().optional(),
   workingDirectoryConfig: workingDirConfigSchema.optional(),
+});
+
+/**
+ * Metadata a client may seed when creating a topic: the pinned reasoning
+ * snapshot taken alongside the pinned model (see `snapshotAgentModel`).
+ */
+export const chatTopicCreateMetadataSchema = chatTopicMetadataUpdateSchema.pick({
+  heteroEffort: true,
+  reasoningConfig: true,
 });
 
 export interface ChatTopicSummary {
@@ -458,7 +611,6 @@ export interface ChatTopicSummary {
 export const TOPIC_STATUSES = [
   'active',
   'running',
-  'paused',
   'waitingForHuman',
   'scheduled',
   'failed',
@@ -564,6 +716,12 @@ export interface QueryTopicParams {
   agentId?: string | null;
   current?: number;
   /**
+   * Scope an `agentId` query to the builder conversations that configured one
+   * target — see `ChatTopicMetadata.editingGroupId`. Ignored without `agentId`.
+   */
+  editingAgentId?: string | null;
+  editingGroupId?: string | null;
+  /**
    * Exclude topics by status (e.g. ['completed'])
    */
   excludeStatuses?: string[];
@@ -624,6 +782,8 @@ export interface SharedTopicData {
     avatar?: string | null;
     backgroundColor?: string | null;
     marketIdentifier?: string | null;
+    /** Personal name; renderers resolve the label with `agentDisplayName`. */
+    name?: string | null;
     slug?: string | null;
     title?: string | null;
   };
@@ -636,6 +796,8 @@ export interface SharedTopicData {
       avatar: string | null;
       backgroundColor: string | null;
       id: string;
+      /** Personal name; renderers resolve the label with `agentDisplayName`. */
+      name?: string | null;
       title: string | null;
     }[];
     title?: string | null;

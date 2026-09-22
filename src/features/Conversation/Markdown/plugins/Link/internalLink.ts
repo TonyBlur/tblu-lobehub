@@ -1,5 +1,5 @@
 import { BUILTIN_AGENT_SLUGS } from '@lobechat/builtin-agents';
-import { OFFICIAL_URL } from '@lobechat/const';
+import { OFFICIAL_SITE, OFFICIAL_URL } from '@lobechat/const';
 
 import { getIdFromIdentifier } from '@/utils/identifier';
 
@@ -10,7 +10,7 @@ const SPA_ROUTE_ROOTS = new Set([
   'agent',
   'acceptance',
   'community',
-  'downloads',
+  'apps',
   'eval',
   'group',
   'image',
@@ -56,20 +56,35 @@ const getRouteSegments = (pathname: string, workspaceSlugs: ReadonlySet<string>)
 };
 
 const isInternalHost = (url: URL, currentOrigin?: string) => {
-  const officialHost = new URL(OFFICIAL_URL).host;
-  if (!currentOrigin) return url.host === officialHost;
+  const officialHosts = new Set([new URL(OFFICIAL_SITE).host, new URL(OFFICIAL_URL).host]);
+  if (!currentOrigin) return officialHosts.has(url.host);
 
   try {
     const originUrl = new URL(currentOrigin);
     if (originUrl.protocol !== 'http:' && originUrl.protocol !== 'https:') {
-      return url.host === officialHost;
+      return officialHosts.has(url.host);
     }
 
-    return url.host === originUrl.host;
+    return (
+      url.host === originUrl.host ||
+      (officialHosts.has(originUrl.host) && officialHosts.has(url.host))
+    );
   } catch {
     return false;
   }
 };
+
+/**
+ * Whether a link's visible text is just the pasted address rather than
+ * something a human wrote. Only such a label may be replaced by the entity's
+ * resolved title; authored link text is the author's choice and stays.
+ *
+ * Exact equality, not a URL-shaped prefix test: for an autolink the rehype
+ * pass sets the label to the canonical form, which for an internal link IS
+ * the href — while `[https://docs.example](/task/1)` is authored text that
+ * merely looks like a URL and must survive.
+ */
+export const isBareLinkLabel = (label: string, href: string) => label === href;
 
 /** Parse a LobeHub route into a semantic entity reference. */
 export const parseInternalLink = (

@@ -6,8 +6,8 @@ evidence: a passing assertion or a correct JSON result is harder to fake than a
 screenshot, and it runs anywhere (no browser, no display).
 
 Use this surface when your change is verifiable by running something and reading
-what it prints. Escalate to [web.md](./web.md) or [electron.md](./electron.md)
-only when the criterion is actually about rendered UI.
+what it prints. Return to the surface router only when the criterion is actually
+about rendered UI.
 
 ## How to verify
 
@@ -19,18 +19,18 @@ only when the criterion is actually about rendered UI.
 ```bash
 # CHECK_ITEM_ID is the criterion's plan item id (from `lh verify plan state`).
 # short result → inline
-lh acceptance run result submit --operation "$LOBE_OPERATION_ID" --item "$CHECK_ITEM_ID" --type text \
+lh acceptance run result submit --operation "$OPERATION_ID" --item "$CHECK_ITEM_ID" --type text \
   --content "$(your-cli command --json)" \
   --by cli --desc "command reports the new field after the change"
 
 # larger output (test log, full dump) → file
 your-cli command --json > ./proof/result.json
-lh acceptance run result submit --operation "$LOBE_OPERATION_ID" --item "$CHECK_ITEM_ID" --type text \
+lh acceptance run result submit --operation "$OPERATION_ID" --item "$CHECK_ITEM_ID" --type text \
   --file ./proof/result.json --by cli --desc "full result set"
 
 # a test run is itself proof
 your-test-runner path/to/spec > ./proof/test.log 2>&1
-lh acceptance run result submit --operation "$LOBE_OPERATION_ID" --item "$CHECK_ITEM_ID" --type text \
+lh acceptance run result submit --operation "$OPERATION_ID" --item "$CHECK_ITEM_ID" --type text \
   --file ./proof/test.log --by program --desc "regression spec passes"
 ```
 
@@ -41,7 +41,8 @@ Provenance: `cli` for command stdout, `program` for a script/test you ran. See
 
 The `lh` CLI you upload with is already authed. A _different_ product CLI under
 test carries its own auth (API key or stored login) — configure it before
-capturing its output. See [../references/auth.md](../references/auth.md#cli--backend-surface).
+capturing its output, and verify the credential belongs to the intended test
+environment.
 
 ## Boundaries
 
@@ -51,4 +52,4 @@ capturing its output. See [../references/auth.md](../references/auth.md#cli--bac
   criterion (or describe them in `--desc`), not a 10k-line log the reviewer must
   scan.
 - **Never upload secrets.** Strip tokens/keys from output before uploading — see
-  [../references/auth.md](../references/auth.md#boundaries--read-before-touching-cookies).
+  [../references/evidence.md](../references/evidence.md#artifact-safety).

@@ -4,7 +4,11 @@ import { type PortalArtifact } from '@/types/artifact';
 
 import { dbMessageSelectors } from '../message/selectors';
 import { topicSelectors } from '../topic/selectors';
-import { createLocalFileScopeKey, getLocalFileTabId } from './helpers';
+import {
+  createLocalFileScopeKey,
+  createSandboxLocalFileScopeKey,
+  getLocalFileTabId,
+} from './helpers';
 import { type OpenLocalFileEntry, type PortalFile, type PortalViewData } from './initialState';
 import { PortalViewType } from './initialState';
 
@@ -48,6 +52,7 @@ const showMessageDetail = (s: ChatStoreState) =>
   currentViewType(s) === PortalViewType.MessageDetail;
 const showPluginUI = (s: ChatStoreState) => currentViewType(s) === PortalViewType.ToolUI;
 const showTaskDetail = (s: ChatStoreState) => currentViewType(s) === PortalViewType.TaskDetail;
+const showTopicChat = (s: ChatStoreState) => currentViewType(s) === PortalViewType.Topic;
 
 // ============== Data Extractors ==============
 
@@ -61,6 +66,14 @@ const getViewData = <T extends PortalViewType>(
     return view as Extract<PortalViewData, { type: T }>;
   }
   return null;
+};
+
+const getStackViewData = <T extends PortalViewType>(
+  s: ChatStoreState,
+  type: T,
+): Extract<PortalViewData, { type: T }> | null => {
+  const view = s.portalStack.findLast((item) => item.type === type);
+  return (view as Extract<PortalViewData, { type: T }> | undefined) ?? null;
 };
 
 const agentDetailId = (s: ChatStoreState): string | undefined => {
@@ -159,6 +172,11 @@ const currentLocalFileScopeKey = (s: ChatStoreState): string | undefined => {
 const isLocalFileInCurrentScope = (s: ChatStoreState, file: OpenLocalFileEntry): boolean => {
   if (file.allowExternalFilePreview) return true;
 
+  // Sandbox tabs carry no client-side working directory — scope them by the
+  // topic whose sandbox serves the read; the cwd filter would drop them in
+  // project-scoped topics.
+  if (file.sandboxTopicId) return file.sandboxTopicId === s.activeTopicId;
+
   const workingDirectory = currentLocalFileScopeWorkingDirectory(s);
   return workingDirectory ? file.workingDirectory === workingDirectory : true;
 };
@@ -169,10 +187,22 @@ const openLocalFiles = (s: ChatStoreState): OpenLocalFileEntry[] =>
 const activeLocalFileId = (s: ChatStoreState): string | undefined => {
   const files = openLocalFiles(s);
   const scopeKey = currentLocalFileScopeKey(s);
-  const scopedActiveId = scopeKey ? s.activeLocalFileIdsByScope?.[scopeKey] : s.activeLocalFileId;
+  // Without a cwd scope, the legacy global id may have been overwritten by a
+  // sandbox tab activated in another unscoped topic — fall back to this
+  // topic's own sandbox-scope entry before giving up.
+  const scopedActiveIds = scopeKey
+    ? [s.activeLocalFileIdsByScope?.[scopeKey]]
+    : [
+        s.activeLocalFileId,
+        s.activeTopicId
+          ? s.activeLocalFileIdsByScope?.[createSandboxLocalFileScopeKey(s.activeTopicId)]
+          : undefined,
+      ];
 
-  if (scopedActiveId && files.some((file) => getLocalFileTabId(file) === scopedActiveId)) {
-    return scopedActiveId;
+  for (const scopedActiveId of scopedActiveIds) {
+    if (scopedActiveId && files.some((file) => getLocalFileTabId(file) === scopedActiveId)) {
+      return scopedActiveId;
+    }
   }
 
   const active = s.activeLocalFilePath;
@@ -223,8 +253,25 @@ const messageDetailId = (s: ChatStoreState): string | undefined => {
 
 // Task Detail selectors
 const taskDetailId = (s: ChatStoreState): string | undefined => {
-  const view = getViewData(s, PortalViewType.TaskDetail);
+  const view = getStackViewData(s, PortalViewType.TaskDetail);
   return view?.taskId;
+};
+
+const taskResultId = (s: ChatStoreState): string | undefined => {
+  const view = getStackViewData(s, PortalViewType.TaskResult);
+  return view?.taskId;
+};
+
+// Goal detail drill-down selectors
+const goalPortalId = (s: ChatStoreState): string | undefined =>
+  getViewData(s, PortalViewType.Goal)?.goalId;
+const goalNodeView = (s: ChatStoreState) => getViewData(s, PortalViewType.GoalNode);
+const goalMetricView = (s: ChatStoreState) => getViewData(s, PortalViewType.GoalMetric);
+
+// Topic chat selectors — the second, side-by-side topic opened in the portal
+const portalTopicId = (s: ChatStoreState): string | undefined => {
+  const view = getViewData(s, PortalViewType.Topic);
+  return view?.topicId;
 };
 
 const topicCommentsView = (s: ChatStoreState) => getViewData(s, PortalViewType.TopicComments);
@@ -276,6 +323,7 @@ export const chatPortalSelectors = {
   showMessageDetail,
   showPluginUI,
   showTaskDetail,
+  showTopicChat,
 
   // Agent detail data
   agentDetailId,
@@ -300,6 +348,11 @@ export const chatPortalSelectors = {
   previewFileId,
   chunkText,
 
+  // Goal drill-down data
+  goalMetricView,
+  goalNodeView,
+  goalPortalId,
+
   // Local file data
   activeLocalFileId,
   activeLocalFilePath,
@@ -316,6 +369,10 @@ export const chatPortalSelectors = {
 
   // Task detail data
   taskDetailId,
+  taskResultId,
+
+  // Topic chat data
+  portalTopicId,
 
   // Topic comment data
   topicCommentsView,

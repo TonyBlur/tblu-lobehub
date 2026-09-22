@@ -1,3 +1,4 @@
+import { getComposioAppByIdentifier } from '@lobechat/const';
 import { upsertPluginMode } from '@lobechat/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
@@ -10,7 +11,7 @@ import { AgentModel } from '@/database/models/agent';
 import { ConnectorModel } from '@/database/models/connector';
 import { ConnectorToolModel } from '@/database/models/connectorTool';
 import { PluginModel } from '@/database/models/plugin';
-import type { OIDCConfig } from '@/database/schemas';
+import type { ConnectorMetadata, OIDCConfig } from '@/database/schemas';
 import {
   ConnectorMcpConnectionType,
   ConnectorSourceType,
@@ -18,6 +19,7 @@ import {
   ConnectorToolPermission,
 } from '@/database/schemas';
 import type { LobeChatDatabase } from '@/database/type';
+import { getComposioClient } from '@/libs/composio';
 import { inferCrudType } from '@/libs/mcp/utils';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
@@ -235,6 +237,7 @@ export const connectorRouter = router({
           return {
             ...rest,
             agentAvatar: meta?.avatar ?? null,
+            agentName: meta?.name ?? null,
             agentTitle: meta?.title ?? null,
             oidcConfig: safeOidcConfig,
             tools,
@@ -663,6 +666,24 @@ export const connectorRouter = router({
       // Missing row → keep the delete idempotent, nothing to authorize.
       if (!target) return;
       assertWorkspaceRowManageable(ctx, target.userId, 'connector');
+
+      const connectedAccountId = target.metadata?.composio?.connectedAccountId;
+      if (connectedAccountId) {
+        try {
+          await getComposioClient().connectedAccounts.delete(connectedAccountId);
+        } catch (error) {
+          // Keep deletion recoverable when the remote account is already gone or
+          // Composio is temporarily unavailable. This matches deleteConnection:
+          // the local connector must not become impossible to remove.
+          console.warn('[Composio] Failed to delete remote connection:', error);
+        }
+
+        // Personal Composio connections still carry the legacy plugin projection.
+        // Agent-scoped connections never create one, so do not remove a base
+        // plugin that may belong to a separate personal connection.
+        if (!target.agentId) await ctx.pluginModel.delete(target.identifier);
+      }
+
       await ctx.connectorModel.delete(input.id);
 
       // Agent-owned connector: also unpin its tool from the owning agent's
@@ -945,6 +966,12 @@ export const connectorRouter = router({
         return { connectorId: null, toolCount: 0 };
       }
 
+      // Legacy plugin rows can outlive a provider's removal from the Composio catalog. Do not
+      // project those rows back into user_connectors when the detail panel performs its sync.
+      if (plugin.customParams?.composio && !getComposioAppByIdentifier(input.identifier)) {
+        return { connectorId: null, toolCount: 0 };
+      }
+
       if (!plugin.manifest) {
         throw new TRPCError({
           code: 'NOT_FOUND',
@@ -954,6 +981,7 @@ export const connectorRouter = router({
 
       const { connectorId, writable } = await upsertConnectorEntry(ctx, {
         avatar: plugin.manifest.meta?.avatar,
+        composio: plugin.customParams?.composio,
         description: plugin.manifest.meta?.description,
         identifier: input.identifier,
         name: plugin.manifest.meta?.title || input.identifier,
@@ -995,15 +1023,17 @@ async function upsertConnectorEntry(
   },
   params: {
     avatar?: string;
+    composio?: ConnectorMetadata['composio'];
     description?: string;
     identifier: string;
     name: string;
     sourceType: string;
   },
 ): Promise<{ connectorId: string; writable: boolean }> {
-  const metadata: Record<string, unknown> = {};
+  const metadata: ConnectorMetadata = {};
   if (params.description) metadata.description = params.description;
   if (params.avatar) metadata.avatar = params.avatar;
+  if (params.composio) metadata.composio = params.composio;
 
   // Viewers keep browse access: they resolve existing rows read-only below,
   // but must never create or rewrite connector state. These bootstrap
@@ -1026,8 +1056,9 @@ async function upsertConnectorEntry(
     const row = existing[0];
     const writable = canWrite && (!isWorkspaceNonOwner(ctx) || row.userId === ctx.userId);
     if (writable) {
-      // Update metadata with latest description/avatar from manifest
-      await ctx.connectorModel.update(row.id, { metadata });
+      // Preserve runtime-owned metadata (especially Composio account identity)
+      // while refreshing display fields from the latest plugin manifest.
+      await ctx.connectorModel.update(row.id, { metadata: { ...row.metadata, ...metadata } });
     }
     return { connectorId: row.id, writable };
   }

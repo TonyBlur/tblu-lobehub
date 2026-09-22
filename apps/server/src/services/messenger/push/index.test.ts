@@ -25,8 +25,8 @@ vi.mock('@/server/services/messenger/installations', () => ({
   getInstallationStore: () => ({ resolveByKey: mocks.resolveByKey }),
 }));
 
-vi.mock('@/server/services/messenger/MessengerRouter', () => ({
-  getMessengerRouter: () => ({ sendDirectMessage: mocks.sendDirectMessage }),
+vi.mock('@/server/services/messenger/outbound', () => ({
+  sendOutboundDirectMessage: mocks.sendDirectMessage,
 }));
 
 vi.mock('@/server/services/messenger/wechatPush', () => ({
@@ -102,6 +102,30 @@ describe('messenger proactive push', () => {
       });
     },
   );
+
+  it('forwards attachments to the outbound DM and allows an empty text leg', async () => {
+    const link = buildLink('slack', 'T_ACME');
+    mocks.findByPlatform.mockResolvedValue(link);
+    const attachments = [
+      { fetchUrl: 'https://cdn.example.com/report.pdf', name: 'report.pdf', type: 'file' as const },
+    ];
+
+    const result = await sendMessengerPush({
+      attachments,
+      platform: 'slack',
+      serverDB,
+      tenantId: 'T_ACME',
+      userId: 'user-1',
+    });
+
+    expect(result).toEqual({ status: 'sent' });
+    expect(mocks.sendDirectMessage).toHaveBeenCalledWith({
+      attachments,
+      content: undefined,
+      credentials: expect.objectContaining({ installationKey: 'slack:T_ACME' }),
+      platformUserId: link.platformUserId,
+    });
+  });
 
   it('uses tenantId to route a Slack push to the requested workspace link', async () => {
     mocks.findByPlatform.mockResolvedValue(buildLink('slack', 'T_BETA'));

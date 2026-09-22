@@ -1,10 +1,55 @@
 export default {
+  'marketSubmission.entry': 'Publish',
+  'marketSubmission.title': 'Publish to Market',
+  'marketSubmission.submit': 'Publish',
+  'marketSubmission.confirm':
+    '“{{name}}” will become a public agent when published to Market. Make sure its profile and prompt contain no private information or secrets.',
+  'marketSubmission.required': 'Add an agent name and prompt before publishing.',
+  'marketSubmission.success':
+    'Submitted. Your agent is under review and will appear in Market after approval.',
+  'marketSubmission.failed': 'Could not submit. Please try again.',
+  'marketSubmission.linkFailed':
+    'Submitted, but could not save the Market link locally ({{identifier}}). Keep this identifier and avoid resubmitting as a new agent.',
+  'marketPublish.status.published': 'Published',
+  'marketPublish.status.unpublished': 'Unpublished',
+  'marketPublish.status.archived': 'Archived',
+  'marketPublish.status.deprecated': 'Deprecated',
+  'completionSound.title': 'In-app completion sound',
+  'completionSound.enabled': 'Play completion sound',
+  'completionSound.desc':
+    'Play a chime when a chat finishes while LobeHub is in the foreground. The sound, volume and imports stay on this device and are not synced.',
+  'completionSound.sound': 'Sound',
+  'completionSound.builtin.lobehub': 'LobeHub chime',
+  'completionSound.builtin.glassBell': 'Glass bell',
+  'completionSound.builtin.softTone': 'Soft tone',
+  'completionSound.builtin.xylophone': 'Xylophone',
+  'completionSound.import': 'Import sound…',
+  'completionSound.importHint':
+    'Choose WAV, MP3 or OGG (up to 1 MB), or openpeon.json from an extracted OpenPeon pack. Only task completion sounds are imported.',
+  'completionSound.preview': 'Preview',
+  'completionSound.volume': 'Volume',
+  'completionSound.error':
+    'Could not load, save or play the sound. Check the audio file or OpenPeon pack and try again.',
+  'completionSound.retry': 'Reload settings',
+  'completionSound.banner.title': 'Background notification',
+  'completionSound.banner.label': 'Notification sound',
+  'completionSound.banner.desc':
+    'Sound the notification banner carries when a chat finishes while LobeHub is in the background. macOS Focus and per-app notification settings still apply.',
+  'completionSound.banner.system': 'System default',
+  'completionSound.banner.lobehub': 'LobeHub chime',
+  'completionSound.banner.previewTitle': 'Notification preview',
+  'completionSound.banner.previewBody': 'This is how a finished chat will sound in the background.',
+  'completionSound.banner.systemMuted':
+    'macOS has notification sounds turned off for LobeHub, so background notifications stay silent. Turn them back on in System Settings › Notifications › LobeHub.',
+
   '_cloud.officialProvider': '{{name}} Official Model Service',
   'about.title': 'About',
   'agentImport.action': 'Copy to Workspace...',
   'agentImport.description':
     'Create an independent copy in a Workspace. The original Agent stays in your personal account.',
   'agentImport.failed': 'Failed to copy agent.',
+  'agentImport.backgroundCopy':
+    'Chat history is large — it keeps copying in the background, and conversations light up one by one as they finish.',
   'agentImport.modal.configIncluded': 'Agent configuration is copied by default.',
   'agentImport.modal.confirm': 'Copy',
   'agentImport.modal.includeHistory': 'Copy topics and messages',
@@ -33,8 +78,15 @@ export default {
     'You may not need to delete your account — you can change your email or link more sign-in methods in <0>Profile Settings</0>.',
   'accountDeletion.divert.bug':
     'Sorry about that! Come tell us in our <0>Discord</0> community and we’ll follow up.',
+  'accountDeletion.blockedByAgentMigration':
+    'Deletion is paused: an agent is still migrating its conversation history. It will retry automatically once the migration finishes.',
+  'accountDeletion.blockedByOwnedWorkspaces':
+    'Deletion is paused: you still own a workspace with other members. Transfer ownership or delete the workspace, and it will retry automatically.',
+  'accountDeletion.blockedRetrying':
+    'Deletion could not be completed yet and will retry automatically.',
   'accountDeletion.pendingDesc': 'Your account is scheduled for deletion',
   'accountDeletion.pendingMessage': 'Your account will be deleted in {{hours}} hours',
+  'accountDeletion.processingMessage': 'Your account is being deleted…',
   'accountDeletion.reasonLabel': 'Why are you leaving?',
   'accountDeletion.reasonOption.account_issue':
     'Account issues (duplicate account / changing email)',
@@ -54,7 +106,43 @@ export default {
   'accountDeletion.requestSuccess': 'Deletion request submitted',
   'accountDeletion.sectionTitle': 'Account Deletion',
   'accountDeletion.title': 'Delete Account',
+  'accountDeletion.workspaceAutoCancel.notice':
+    'Deleting your account will automatically cancel the paid plans on these workspaces: {{names}}. Remaining time will not be refunded.',
+  'accountDeletion.workspaceBlocked.membersDesc':
+    'You are the owner of {{count}} workspace(s) that still have other members. To protect their data, transfer ownership or delete these workspaces before deleting your account.',
+  'accountDeletion.workspaceBlocked.reasonMembers': 'Other members',
+  'accountDeletion.workspaceBlocked.reasonPaid': 'Paid plan active',
+  'accountDeletion.workspaceBlocked.title': 'Transfer your workspaces first',
   'advancedSettings': 'Advanced Settings',
+  'artworkStudio.cancel': 'Cancel generation',
+  'artworkStudio.composition.avatar': 'Avatar',
+  'artworkStudio.composition.fullBody': 'Full body',
+  'artworkStudio.direction.placeholder':
+    'Add a detail — "a boy with glasses", "cyberpunk mechanic" (optional)',
+  'artworkStudio.diyTitle': 'Make your own',
+  'artworkStudio.enableModel': 'Enable a model',
+  'artworkStudio.generate.avatar': 'Generate',
+  'artworkStudio.generate.fullBody': 'Generate',
+  'artworkStudio.generate.characterSet': 'Generate both images',
+  'artworkStudio.framePreview': 'Preview what home shows',
+  'artworkStudio.generateFailed': 'Could not generate the image. Try again.',
+  'artworkStudio.generateTitle': 'Generate with AI',
+  'artworkStudio.generatingHint':
+    'This usually takes about 60 seconds. You can keep editing while it finishes.',
+  'artworkStudio.noModel': 'Enable an image generation model to use one-click generation.',
+  'artworkStudio.reference.remove': 'Remove reference',
+  'artworkStudio.reference.title': 'Reference',
+  'artworkStudio.remove': 'Remove',
+  'artworkStudio.style.anime': 'Anime',
+  'artworkStudio.style.lineArt': 'Hand-drawn Lines',
+  'artworkStudio.style.lobe': 'Lobe Style',
+  'artworkStudio.style.painterly': 'Hand-painted',
+  'artworkStudio.style.pixel': 'Pixel Art',
+  'artworkStudio.style.title': 'Style',
+  'artworkStudio.upload': 'Upload',
+  'artworkStudio.uploadSpec.avatar': '1:1 · PNG / JPG ≤ 1 MB',
+  'artworkStudio.uploadSpec.fullBody': '3:4 · transparent PNG ≤ 1 MB',
+  'artworkStudio.preview.fullBody': 'Full-body character preview',
   'agentCronJobs.addJob': 'Add Scheduled Task',
   'agentCronJobs.clearTopics': 'Clear Topics',
   'agentCronJobs.clearTopicsFailed': 'Failed to clear topics',
@@ -218,11 +306,34 @@ export default {
     'Your member permission here is "Can use" — you can view and use it, but not edit. Ask the creator or a workspace owner for edit access.',
   'permission.accessTag.viewOnlyTip':
     'Your member permission here is "Can view" — you can view it, but not use or edit. Ask the creator or a workspace owner for more access.',
-  'permission.generalAccess.label': 'Member Permissions',
+  'permission.collaborators.add': 'Add',
+  'permission.collaborators.addModal.confirm': 'Add',
+  'permission.collaborators.addModal.confirmCount_one': 'Add {{count}} member',
+  'permission.collaborators.addModal.confirmCount_other': 'Add {{count}} members',
+  'permission.collaborators.addModal.empty': 'No members available to add',
+  'permission.collaborators.addModal.noMatch': 'No matching members',
+  'permission.collaborators.addModal.search': 'Search members',
+  'permission.collaborators.addModal.selectionLimit':
+    'You can add up to {{count}} members at a time',
+  'permission.collaborators.addModal.selectedCount_one': '{{count}} member selected',
+  'permission.collaborators.addModal.selectedCount_other': '{{count}} members selected',
+  'permission.collaborators.addModal.title': 'Add collaborators',
+  'permission.collaborators.empty': 'No collaborators yet',
+  'permission.collaborators.libraryDesc':
+    'Collaborators can open this knowledge base and view the files inside even when the access level is "No access"',
+  'permission.collaborators.remove': 'Remove',
+  'permission.collaborators.removeConfirmTitle': 'Remove {{name}}?',
+  'permission.collaborators.title': 'Collaborators',
   'permission.generalAccess.trigger': 'Members: {{level}}',
   'permission.generalAccess.editable': 'Can edit',
   'permission.generalAccess.editableDesc': 'Members can view, use, and edit',
   'permission.generalAccess.editableDocumentDesc': 'Members can view and edit',
+  'permission.generalAccess.kbAccessible': 'Can access',
+  'permission.generalAccess.kbAccessibleDesc':
+    'Members can open the knowledge base and view the files inside',
+  'permission.generalAccess.kbNoAccess': 'No access',
+  'permission.generalAccess.kbNoAccessDesc':
+    'Members cannot see or attach this knowledge base; agents it is already attached to keep retrieving',
   'permission.generalAccess.usable': 'Can use',
   'permission.generalAccess.usableDesc': 'Members can view and use, but cannot edit',
   'permission.generalAccess.viewable': 'Can view',
@@ -241,9 +352,50 @@ export default {
   'permission.page.devicePolicyUnset':
     'Pick an execution environment in Agent Profile first, then you can fix it here.',
   'permission.page.editableWhenShared': 'Can edit when shared',
-  'permission.page.entry': 'Member Permissions',
+  'permission.page.documentAccessLevelPrivateHint':
+    'Members get this level once the page is published to the workspace. It can be changed after publishing.',
+  'permission.page.documentGeneralAccessDesc':
+    'What every workspace member can do with this page. The creator and workspace owners always keep full access; admins can manage these permissions.',
+  'permission.page.documentPrivateNotice':
+    'This page is still private. Everything here takes effect once you publish it to the workspace.',
+  'permission.page.entry': 'Permissions',
+  'permission.page.kbAccessibleWhenShared': 'Can access when shared',
+  'permission.page.kbNoAccessWhenShared': 'No access when shared',
+  'permission.page.libraryAccessLevelPrivateHint':
+    'Members get this level once the knowledge base is published to the workspace. It can be changed after publishing.',
+  'permission.page.libraryGeneralAccessDesc':
+    'What every workspace member can do with this knowledge base. The creator and workspace owners always keep full access; admins can manage these permissions.',
+  'permission.page.libraryPrivateNotice':
+    'This knowledge base is still private. Everything here takes effect once you publish it to the workspace.',
   'permission.page.generalAccessDesc':
     'What every workspace member can do with this agent. The creator and workspace owners always keep full access.',
+  'permission.page.groupAccessLevelPrivateHint':
+    'Members get this level once the group is published to the workspace. It can be changed after publishing.',
+  'permission.page.groupDevicePolicyDesc':
+    'Whether members can switch the execution environment for their own runs in this group.',
+  'permission.page.groupDevicePolicyFixedDesc':
+    'Members can only use the environment you set for this group',
+  'permission.page.groupDevicePolicyMemberDesc': 'Members can set their own execution environment',
+  'permission.page.groupDevicePolicyUnset':
+    'Pick an execution environment for the orchestrator first, then you can fix it here.',
+  'permission.page.groupGeneralAccessDesc':
+    'What every workspace member can do with this group. The same level is applied to the member agents the group owns. The creator and workspace owners always keep full access.',
+  'permission.page.groupPersonalDesc':
+    'This group only belongs to you, so there is nothing to share yet. Publish it to a workspace to set member permissions.',
+  'permission.page.groupPersonalTitle': 'Permissions apply to workspace groups',
+  'permission.page.groupPrivateNotice':
+    'This group is still private. Everything here takes effect once you publish it to the workspace.',
+  'permission.page.groupModelPolicyDesc':
+    'Whether members can switch the model for their own conversations in this group.',
+  'permission.page.groupModelPolicyFixedDesc':
+    'Members can only use the model you set for this group',
+  'permission.page.groupModelPolicyMemberDesc': 'Members can use a model they set themselves',
+  'permission.page.groupTopicSharePolicyDesc':
+    "Whether members can publish share links for this group's topics.",
+  'permission.page.groupTopicSharePolicyMemberDesc':
+    "Members can publish share links for any of this group's topics",
+  'permission.page.groupTopicSharePolicyRestrictedDesc':
+    'Only you and workspace owners can publish share links for this group',
   'permission.page.memberGroup': 'Access',
   'permission.page.modelPolicyFixedDesc': 'Members can only use the model you set',
   'permission.page.modelPolicyMemberDesc': 'Members can use a model they set themselves',
@@ -254,8 +406,15 @@ export default {
   'permission.page.personalTitle': 'Permissions apply to workspace agents',
   'permission.page.privateNotice':
     'This agent is still private. Everything here takes effect once you publish it to the workspace.',
-  'permission.page.title': 'Member Permissions',
+  'permission.page.title': 'Permissions',
+  'permission.page.topicSharePolicyDesc':
+    "Whether members can publish share links for this agent's topics.",
+  'permission.page.topicSharePolicyMemberDesc':
+    "Members can publish share links for any of this agent's topics",
+  'permission.page.topicSharePolicyRestrictedDesc':
+    'Only you and workspace owners can publish share links',
   'permission.page.usableWhenShared': 'Can use when shared',
+  'permission.page.viewableWhenShared': 'Can view when shared',
   'permission.saveNoEditPermission':
     'You have view-only access to this page, so your changes were not saved',
   'permission.updateError': 'Failed to update permission',
@@ -284,6 +443,34 @@ export default {
 
   // Heterogeneous agent CLI status (shown on agent profile page in integration mode)
   'heterogeneousStatus.account.label': 'Account',
+  'heterogeneousStatus.apiMode.configureProvider': 'Go to provider settings',
+  'heterogeneousStatus.apiMode.localOnly': 'Available only for Desktop local execution',
+  'heterogeneousStatus.apiMode.defaultProvider': 'LobeHub',
+  'heterogeneousStatus.apiMode.model': 'Model',
+  'heterogeneousStatus.apiMode.modelPlaceholder': 'Select a model',
+  'heterogeneousStatus.apiMode.noProviders':
+    'No enabled provider with an Anthropic-compatible endpoint is configured.',
+  'heterogeneousStatus.apiMode.noResponsesProviders':
+    'No enabled provider with an explicitly supported Responses API endpoint is configured.',
+  'heterogeneousStatus.apiMode.smallFastModel': 'Background model',
+  'heterogeneousStatus.apiMode.smallFastModelDesc':
+    'Used for session titles, summaries, and other background work. Does not change the main conversation.',
+  'heterogeneousStatus.apiMode.smallFastModelPlaceholder': 'Same as primary model',
+  'heterogeneousStatus.apiMode.provider': 'Provider',
+  'heterogeneousStatus.apiMode.providerPlaceholder': 'Select a provider',
+  'heterogeneousStatus.apiMode.workspaceUnsupported': 'Not available for workspace agents',
+  'heterogeneousStatus.apiMode.serverDefault.checking': 'Checking deployment provider...',
+  'heterogeneousStatus.apiMode.serverDefault.disabled':
+    'The deployment administrator has disabled the default API provider for heterogeneous agents.',
+  'heterogeneousStatus.apiMode.serverDefault.invalidConfiguration':
+    'The deployment provider or its compatible models are not configured.',
+  'heterogeneousStatus.apiMode.serverDefault.loadFailed':
+    'Could not check the deployment provider.',
+  'heterogeneousStatus.apiMode.serverDefault.noModels':
+    'No compatible models are available from the deployment provider.',
+  'heterogeneousStatus.apiMode.serverDefault.retry': 'Retry',
+  'heterogeneousStatus.apiMode.serverDefault.unsupported':
+    'The deployment provider does not expose a compatible model for this CLI.',
   'heterogeneousStatus.auth.api': 'API',
   'heterogeneousStatus.auth.label': 'Auth Method',
   'heterogeneousStatus.auth.subscription': 'Subscription',
@@ -512,28 +699,37 @@ export default {
   'devices.share.visibilityTag.public': 'Workspace',
   'devices.status.offline': 'Offline',
   'devices.status.online': 'Online',
+  'devices.status.onlineConnections_one': 'Online · {{count}} connection',
+  'devices.status.onlineConnections_other': 'Online · {{count}} connections',
   'devices.title': 'My Devices',
   'devices.visibility.publish': 'Publish to Workspace',
   'devices.visibility.publishConfirmTitle': 'Publish this device to the workspace?',
   'devices.visibilityTabs.private': 'Private',
   'devices.visibilityTabs.workspace': 'Workspace',
   'devices.workingDirectory': 'Working dir: {{path}}',
-  'downloads.desktop.cta': 'Download desktop app',
-  'downloads.desktop.desc':
-    'Use the native desktop app for local files, system tools, and focused work on your computer.',
-  'downloads.desktop.title': 'Desktop App',
-  'downloads.messenger.cta': 'Open Messenger settings',
-  'downloads.messenger.desc':
-    'Connect LobeHub to the messaging platforms you already use, with quick setup or your own bot configuration.',
-  'downloads.messenger.quickSetup': 'Quick setup',
-  'downloads.messenger.quickSetupTooltip':
-    'You can chat with the official LobeHub account on this platform or manually set up your own.',
-  'downloads.messenger.title': 'Messenger integration',
-  'downloads.mobile.cta': 'Get Mobile App',
-  'downloads.mobile.desc':
-    'Start conversations from your phone and keep LobeHub available when you are away from the desk.',
-  'downloads.mobile.title': 'Mobile App',
-  'downloads.title': 'Discover more ways to use LobeHub',
+  'apps.cli.copied': 'Copied',
+  'apps.cli.copy': 'Copy',
+  'apps.cli.desc': 'Scripts, cron jobs, and headless agents — the same LobeHub, from any terminal.',
+  'apps.cli.title': 'CLI',
+  'apps.desktop.cta': 'Get desktop app',
+  'apps.desktop.desc': 'Chat, build, and automate in one app, with full access to this machine:',
+  'apps.desktop.features.files.desc': 'read, write, and organize your folders',
+  'apps.desktop.features.files.label': 'Local files',
+  'apps.desktop.features.focus.desc': 'a dedicated window, away from browser tabs',
+  'apps.desktop.features.focus.label': 'Focused work',
+  'apps.desktop.features.tools.desc': 'screenshots, notifications, shell',
+  'apps.desktop.features.tools.label': 'System tools',
+  'apps.desktop.inUse': 'In use',
+  'apps.desktop.inUseDesc': "You're already in the desktop app.",
+  'apps.desktop.title': 'Desktop',
+  'apps.messenger.desc':
+    'Talk to your agents where your team already is — replies land back in LobeHub.',
+  'apps.messenger.setup': 'Set up',
+  'apps.messenger.title': 'Messenger',
+  'apps.mobile.cta': 'Get mobile app',
+  'apps.mobile.desc': 'Pick up where you left off — your chats, agents, and files travel with you.',
+  'apps.mobile.title': 'Mobile',
+  'apps.title': 'Do more with LobeHub, everywhere you work',
   'checkingPermissions': 'Checking permissions...',
   'danger.reset.action': 'Reset Now',
   'danger.reset.confirm': 'Reset all settings?',
@@ -547,6 +743,7 @@ export default {
   'group.aiConfig': 'Agent',
   'group.common': 'General',
   'group.developer': 'Developer',
+  'group.personal': 'Personal',
   'group.profile': 'Account',
   'group.subscription': 'Plans',
   'group.system': 'System',
@@ -649,25 +846,56 @@ export default {
   'memory.title': 'Memory Settings',
   'message.success': 'Update successful',
   'notification.enabled': 'Enabled',
+  'notification.channel.enable': 'Enable {{name}}',
+  'notification.channel.status.disabled': 'Disabled',
+  'notification.channel.status.enabledCount': 'Enabled for {{num}} notification types',
+  'notification.channel.status.notLinked': 'Not linked',
+  'notification.channel.types.title': 'Notification types',
   'notification.email.desc': 'Receive email notifications when important events occur',
+  'notification.im.banner.platformUnlinked': '{{platform}} is not linked yet',
+  'notification.im.desc':
+    'Deliver notifications to your linked messenger (Telegram, Discord, Slack, or WeChat) via the LobeHub bot',
+  'notification.im.linkAccount': 'Link account',
+  'notification.im.title': 'Messenger Notifications',
+  'notification.im.platform.desc':
+    'Deliver notifications to your {{platform}} DM via the LobeHub bot',
+  'notification.im.platform.enable': 'Enable {{platform}} notifications',
+  'notification.im.platform.viewSetup': 'View setup',
   'notification.email.title': 'Email Notifications',
   'notification.inbox.desc': 'Show notifications in the in-app inbox',
   'notification.inbox.title': 'Inbox Notifications',
   'notification.push.desc':
     'Send push notifications to your mobile devices (LobeHub mobile app required)',
   'notification.push.title': 'Mobile Push Notifications',
+  'notification.test.action': 'Send test notification',
+  'notification.test.failed': 'Test notification failed: {{reason}}',
+  'notification.test.notDelivered': 'Test notification was not delivered',
+  'notification.test.queued': 'Test notification queued — it will arrive later',
+  'notification.test.sent': 'Test notification sent',
+  'notification.test.title': 'Test notifications',
   'notification.category.agent.title': 'Agent',
   'notification.category.billing.title': 'Billing',
   'notification.category.generation.title': 'Generation',
+  'notification.category.mention.title': 'Mentions',
   'notification.category.schedule.title': 'Scheduled tasks',
   'notification.category.workspace.title': 'Workspace',
+  'notification.item.agent_cron_job_completed': 'Scheduled task completed',
   'notification.item.agent_cron_job_failed': 'Scheduled task failed',
   'notification.item.agent_run_completed': 'Agent task completed',
+  'notification.item.agent_transfer_result': 'Transfer request result',
   'notification.item.credit_balance_low': 'Credit balance running low',
   'notification.item.image_generation_completed': 'Image generation completed',
   'notification.item.storage_overage_cap_reached': 'Storage pay-as-you-go cap reached',
   'notification.item.subscription_payment_failed': 'Subscription renewal payment failed',
+  'notification.item.subscription_plan_changed': 'Subscription plan changed',
+  'notification.item.subscription_renewed': 'Subscription renewed',
+  'notification.item.task_assigned': 'Task assigned to you',
+  'notification.item.task_comment_activity': 'Task comment activity',
+  'notification.item.task_comment_mentioned': 'Mentioned in a task comment',
+  'notification.item.topic_comment_activity': 'Comment activity',
+  'notification.item.topic_comment_mentioned': 'Mentioned in a comment',
   'notification.item.video_generation_completed': 'Video generation completed',
+  'notification.item.workspace_credit_balance_low': 'Workspace credits running low',
   'notification.item.workspace_member_invited': 'Workspace invitation',
   'notification.item.workspace_member_joined': 'New member joined',
   'notification.item.workspace_member_removed': 'Removed from workspace',
@@ -716,6 +944,29 @@ export default {
   'plugin.store': 'Skill Store',
   'settingAgent.avatar.sizeExceeded': 'Image size exceeds 1MB limit, please choose a smaller image',
   'settingAgent.avatar.title': 'Avatar',
+  'settingAgent.artwork.avatar.generating': 'Creating an image that matches this Agent…',
+  'settingAgent.artwork.avatar.image': 'AI avatar',
+  'settingAgent.artwork.background.empty': 'Add a background to give this Agent a visual identity',
+  'settingAgent.artwork.background.emptyHint': 'Add a cover image',
+  'settingAgent.artwork.background.generate': 'Generate background',
+  'settingAgent.artwork.background.generating': 'Creating a matching background…',
+  'settingAgent.artwork.background.remove': 'Remove background',
+  'settingAgent.artwork.background.upload': 'Upload background',
+  'settingAgent.artwork.cancel': 'Cancel generation',
+  'settingAgent.artwork.generateFailed': 'Could not generate the image. Try again.',
+  'settingAgent.artwork.generatingHint':
+    'This usually takes about 60 seconds. You can keep editing while it finishes.',
+  'settingAgent.artwork.retry': 'Try again',
+  'settingAgent.artwork.sizeExceeded': 'Image must be smaller than 1 MB',
+  'settingAgent.artwork.studio.diyHint':
+    'Upload your own image (under 1 MB), or click the avatar on the profile to pick an emoji.',
+  'settingAgent.artwork.studio.generateHint':
+    "Pick a style and we'll create an avatar from this Agent's profile.",
+  'settingAgent.artwork.studio.open': 'Customize appearance',
+  'settingAgent.artwork.studio.openAction': 'Open the avatar studio',
+  'settingAgent.artwork.studio.title': 'Agent Appearance',
+  'settingAgent.artwork.styleMenu': 'Generation style',
+  'settingAgent.artwork.uploadFailed': 'Could not upload the image. Try again.',
   'settingAgent.backgroundColor.title': 'Background Color',
   'settingAgent.description.desc': 'A brief introduction to your agent, not for character setting',
   'settingAgent.description.placeholder': 'Enter agent description',
@@ -732,6 +983,27 @@ export default {
   'settingAgent.export.untitledFileName': 'agent-profile',
   'settingAgent.name.placeholder': 'Enter agent name',
   'settingAgent.name.title': 'Name',
+  'settingAgent.personalName.label': 'Name',
+  'settingAgent.personalName.placeholder': 'Give it a name, e.g. Alice',
+  'settingAgent.personalName.unnamed': 'This agent has no name yet',
+  'settingAgent.personalName.pickForMe': 'Name it for me',
+  'settingAgent.personalName.pickFailed': 'Could not save the name, please try again',
+  'settingAgent.personalName.roll': 'Roll a random name',
+  'settingAgent.identity.done': 'Done',
+  'settingAgent.identity.edit': 'Edit identity',
+  'settingAgent.identity.saveFailed': 'Could not save the identity, please try again',
+  'settingAgent.identity.untitled': 'Unnamed agent',
+  'settingAgent.role.label': 'Role',
+  'settingAgent.role.placeholder': 'What it is responsible for, e.g. Health Assistant',
+  'settingAgent.role.unset': 'No role set yet',
+  'settingAgent.slug.label': 'Identifier',
+  'settingAgent.slug.error.builtin': 'A builtin agent’s identifier can’t be changed',
+  'settingAgent.slug.error.invalid': 'Use lowercase letters, numbers and hyphens only',
+  'settingAgent.slug.error.reserved': 'This identifier is reserved',
+  'settingAgent.slug.error.taken': 'This identifier is already in use',
+  'settingAgent.slug.placeholder': 'url-identifier',
+  'settingAgent.slug.openWith': 'Open it directly with /agent/{{slug}}',
+  'settingAgent.slug.tooltip': 'The agent’s url identifier — open it with /agent/<slug>',
   'settingAgent.prompt.desc':
     'Defines who this agent is, what it is responsible for, and how it works and responds. It serves as a core instruction in every conversation.',
   'settingAgent.prompt.editorPlaceholder':
@@ -776,11 +1048,18 @@ export default {
   'settingAgent.modelPolicy.fixedTip':
     'The model is fixed in Agent Profile and cannot be switched while chatting.',
   'settingAgent.modelPolicy.title': 'Model',
-  'settingAgent.runtimeConfig.title': 'Model & Tools',
+  'settingAgent.runtimeConfig.reasoningEffortHint':
+    'Your default reasoning effort for this model. Shared by every agent using it; each topic keeps the effort it started with and can change it from the chat input.',
+  'settingAgent.runtimeConfig.title': 'Model & Reasoning Effort',
   'settingAgent.selectionPolicy.membersCannotSwitch': 'Locked',
   'settingAgent.selectionPolicy.membersCannotSwitchWhenShared': 'Locked when shared',
   'settingAgent.selectionPolicy.membersCanSwitch': 'Can switch',
   'settingAgent.selectionPolicy.membersCanSwitchWhenShared': 'Can switch when shared',
+  // Not a Can-switch / Locked pair like the policies above: sharing is a
+  // capability rather than a setting members flip, so the labels name who holds it.
+  'settingAgent.topicSharePolicy.membersCanShare': 'Members can share',
+  'settingAgent.topicSharePolicy.membersCannotShare': 'Creator and owners only',
+  'settingAgent.topicSharePolicy.title': 'Topic sharing',
   'settingAgent.toolsConfig.title': 'Tools',
   'settingAgent.submit': 'Update Agent',
   'settingAgent.tag.desc': 'Agent tags will be displayed in the Agent Community',
@@ -801,6 +1080,33 @@ export default {
   'settingAppearance.contextMenuMode.disabled': 'Disabled',
   'settingAppearance.contextMenuMode.title': 'Right-Click Menu Mode',
   'settingAppearance.desktop.title': 'Desktop',
+  'settingAppearance.font.fontFamily.default': 'System Default',
+  'settingAppearance.font.fontFamily.desc':
+    'Choose a font installed on this device for the whole interface. System Default follows the built-in font stack of your current language.',
+  'settingAppearance.font.fontFamily.loadError':
+    'System fonts could not be loaded. System Default remains available.',
+  'settingAppearance.font.fontFamily.title': 'Interface Font',
+  'settingAppearance.font.fontFamily.unavailable': '{{font}} (Unavailable on this device)',
+  'settingAppearance.font.fallback.add': 'Add fallback font',
+  'settingAppearance.font.fallback.desc':
+    'When the interface font is missing a glyph, these fonts are tried in order. A common pairing is a Latin font first and a CJK font second.',
+  'settingAppearance.font.fallback.limit': 'Up to {{count}} fallback fonts',
+  'settingAppearance.font.fallback.needPrimary': 'Choose an interface font first.',
+  'settingAppearance.font.fallback.placeholder': 'Choose a fallback font',
+  'settingAppearance.font.fallback.remove': 'Remove fallback font',
+  'settingAppearance.font.fallback.title': 'Fallback Fonts',
+  'settingAppearance.font.monospace.default': 'System Default',
+  'settingAppearance.font.monospace.desc':
+    'Used by code blocks and the built-in terminal. Choose a monospaced font installed on this device.',
+  'settingAppearance.font.monospace.loadError':
+    'System fonts could not be loaded. System Default remains available.',
+  'settingAppearance.font.monospace.title': 'Monospace Font',
+  'settingAppearance.font.monospace.unavailable': '{{font}} (Unavailable on this device)',
+  'settingAppearance.font.monospaceFallback.desc':
+    'Tried in order after the monospace font, for code blocks and the built-in terminal.',
+  'settingAppearance.font.monospaceFallback.needPrimary': 'Choose a monospace font first.',
+  'settingAppearance.font.monospaceFallback.title': 'Monospace Fallback Fonts',
+  'settingAppearance.font.title': 'Font',
   'settingAppearance.neutralColor.desc': 'Custom grayscale with different color tendencies',
   'settingAppearance.neutralColor.title': 'Neutral Color',
   'settingAppearance.noAnimation.desc': 'Disable all animation effects in the application',
@@ -808,14 +1114,6 @@ export default {
   'settingAppearance.preview.title': 'Color Palette',
   'settingAppearance.primaryColor.desc': 'Custom theme color',
   'settingAppearance.primaryColor.title': 'Theme Color',
-  'settingAppearance.terminal.fontFamily.desc':
-    'Choose a monospaced font installed on this device. Select Application Default to use the application code font.',
-  'settingAppearance.terminal.fontFamily.default': 'Application Default',
-  'settingAppearance.terminal.fontFamily.loadError':
-    'System fonts could not be loaded. Application Default remains available.',
-  'settingAppearance.terminal.fontFamily.title': 'Monospace Font',
-  'settingAppearance.terminal.fontFamily.unavailable': '{{font}} (Unavailable on this device)',
-  'settingAppearance.terminal.title': 'Terminal',
   'settingAppearance.title': 'Application Appearance',
   'settingChat.chatStyleType.title': 'Chat Window Style',
   'settingChat.chatStyleType.type.chat': 'Conversation Mode',
@@ -850,6 +1148,8 @@ export default {
   'settingChatAppearance.autoScrollOnStreaming.desc':
     'Automatically scroll to bottom when AI is generating response',
   'settingChatAppearance.autoScrollOnStreaming.title': 'Auto-scroll During AI Response',
+  'settingChatAppearance.chatBehavior.title': 'Chat Behavior',
+  'settingChatAppearance.workflowStreamingExpand.title': 'Expand Tool Steps While Running',
   'settingChatAppearance.fontSize.desc': 'Font size of messages',
   'settingChatAppearance.fontSize.marks.normal': 'Standard',
   'settingChatAppearance.fontSize.title': 'Font Size',
@@ -987,7 +1287,8 @@ export default {
   'settingModel.reasoningEffort.options.medium': 'Medium',
   'settingModel.reasoningEffort.title': 'Reasoning Effort',
   'settingModel.subAgentModel.desc':
-    'The default model used by sub-agents this agent spawns. Sub-agents run on a lightweight model by default instead of inheriting this agent’s main model.',
+    'The model used by sub-agents this agent spawns. By default sub-agents follow the main agent’s current model (same provider, same model); pick a model here to override, or clear the selection to follow again.',
+  'settingModel.subAgentModel.followParent': 'Follow main agent model',
   'settingModel.submit': 'Update Model Settings',
   'settingModel.temperature.desc':
     'The higher the value, the more creative and imaginative the responses; the lower the value, the more rigorous the responses.',
@@ -1016,9 +1317,9 @@ export default {
     'Route this agent through the graph runtime using the snapshot stored below.',
   'settingGraphRuntime.enabled.title': 'Enable Graph Runtime',
   'settingGraphRuntime.snapshot.desc':
-    'Paste the complete ReasoningGraph JSON snapshot. It is stored with this agent and used directly at runtime.',
+    'Paste the complete AgentGraph JSON snapshot. It is stored with this agent and used directly at runtime.',
   'settingGraphRuntime.snapshot.placeholder':
-    'Paste a ReasoningGraph JSON snapshot, for example: {"name":"...","nodes":{...},"terminal":"...","edges":[]}',
+    'Paste a AgentGraph JSON snapshot, for example: {"name":"...","nodes":{...},"terminal":"...","edges":[]}',
   'settingGraphRuntime.snapshot.title': 'Graph Snapshot',
   'settingGraphRuntime.validation.invalidGraph': 'Invalid graph snapshot: {{error}}',
   'settingGraphRuntime.validation.invalidJson': 'Graph snapshot must be valid JSON.',
@@ -1035,32 +1336,38 @@ export default {
   'settingsSearch.placeholder': 'Search settings...',
   'settingsSearch.tabKeywords.about': 'about, version, changelog, feedback, help',
   'settingsSearch.tabKeywords.advanced': 'advanced, developer, labs, experiment, beta',
-  'settingsSearch.tabKeywords.apikey': 'api key, apikey, token, secret',
+  'settingsSearch.tabKeywords.apikey': 'api, api key, apikey, token, secret, personal key',
   'settingsSearch.tabKeywords.appearance':
-    'appearance, theme, dark mode, light mode, font, language, color',
+    'appearance, theme, dark mode, light mode, font, language, color, background',
   'settingsSearch.tabKeywords.billing': 'billing, payment, invoice, card, transaction',
   'settingsSearch.tabKeywords.connector': 'connectors, integrations, mcp',
   'settingsSearch.tabKeywords.credits': 'credits, balance, top up, recharge, buy credits',
   'settingsSearch.tabKeywords.creds': 'credentials, secrets, oauth',
   'settingsSearch.tabKeywords.devices': 'devices, sessions, logged in devices',
   'settingsSearch.tabKeywords.hotkey': 'hotkey, shortcut, keyboard',
+  'settingsSearch.tabKeywords.labels': 'labels, tags, grouping',
+  'settingsSearch.tabKeywords.labs': 'labs, experiment, beta, preview, developer',
   'settingsSearch.tabKeywords.memory': 'memory, memories, personalization',
-  'settingsSearch.tabKeywords.messenger': 'messenger, chat platform, bot',
-  'settingsSearch.tabKeywords.notification': 'notification, email, push, alerts',
+  'settingsSearch.tabKeywords.messenger':
+    'messenger, chat platform, bot, telegram, slack, discord, wechat',
+  'settingsSearch.tabKeywords.notification':
+    'notification, email, push, alerts, inbox, telegram, slack, discord, wechat',
+  'settingsSearch.tabKeywords.oauthApps': 'oauth, oauth apps, developer apps',
   'settingsSearch.tabKeywords.plans': 'subscription, plan, upgrade, pricing, membership',
   'settingsSearch.tabKeywords.profile':
     'profile, account, avatar, username, password, email, sign out, logout',
   'settingsSearch.tabKeywords.provider':
-    'provider, model, llm, api key, apikey, byok, bring your own key, endpoint',
-  'settingsSearch.tabKeywords.proxy': 'proxy, network, connection',
+    'provider, model, llm, api, api key, apikey, byok, bring your own key, endpoint, model provider, language model, custom provider',
+  'settingsSearch.tabKeywords.proxy': 'proxy, network, connection, proxy settings',
   'settingsSearch.tabKeywords.referral': 'referral, invite, rewards, bonus',
   'settingsSearch.tabKeywords.serviceModel':
-    'service model, model assignment, topic naming, translation, tts, voice, speech, image, image generation, embedding, prompt rewrite, suggestion',
+    'service model, model assignment, topic naming, translation, image, image generation, embedding, prompt rewrite, suggestion, search, search model',
   'settingsSearch.tabKeywords.skill': 'skills, plugins, tools',
   'settingsSearch.tabKeywords.stats': 'analytics, statistics, stats',
   'settingsSearch.tabKeywords.storage':
-    'storage, files, import, export, backup, reset, clear data, account deletion, delete account',
-  'settingsSearch.tabKeywords.systemTools': 'system tools, built-in tools',
+    'storage, files, import, export, backup, reset, clear data, clear storage, knowledge base, account deletion, delete account',
+  'settingsSearch.tabKeywords.systemTools':
+    'system tools, built-in tools, system, node, python, cli, environment',
   'settingsSearch.tabKeywords.usage': 'usage, consumption, quota, spend, statistics',
   'settingSystem.oauth.info.desc': 'Logged in',
   'settingSystem.oauth.info.title': 'Account Information',
@@ -1075,6 +1382,8 @@ export default {
   'serviceModel.contextLimit.placeholder': 'Context limit',
   'serviceModel.memoryModels.title': 'Memory',
   'serviceModel.optionalFeatures.title': 'Optional Features',
+  'serviceModel.topicAutoSummary.desc':
+    'Summarizes topics created in the rolling 24-hour window after one hour without message activity.',
   'settingSystemTools.appEnvironment.chromium.desc': 'Chromium browser engine version',
   'settingSystemTools.appEnvironment.desc': 'Built-in runtime versions in the desktop app',
   'settingSystemTools.appEnvironment.electron.desc': 'Electron framework version',
@@ -1116,7 +1425,7 @@ export default {
   'settingSystemTools.tools.find.desc': 'Unix find - standard file search command',
   'settingSystemTools.tools.gemini.desc': 'Gemini CLI - Google agentic coding CLI',
   'settingSystemTools.tools.grep.desc': 'GNU grep - standard text search tool',
-  'settingSystemTools.tools.kimi.desc': 'Kimi CLI - Moonshot AI agentic coding CLI',
+  'settingSystemTools.tools.kimi.desc': 'Kimi Code - Moonshot AI agentic coding CLI',
   'settingSystemTools.tools.mdfind.desc': 'macOS Spotlight search (fast indexed search)',
   'settingSystemTools.tools.lobehub.desc': 'LobeHub CLI - manage and connect to LobeHub services',
   'settingSystemTools.tools.bun.desc': 'Bun - fast JavaScript runtime and package manager',
@@ -1166,6 +1475,7 @@ export default {
   'skillStore.empty': 'Browse the Skill Store. Install one to get started, add more later.',
   'skillStore.emptySearch': 'No matching Skills',
   'skillStore.networkError': 'Network error, please try again',
+  'skillStore.rateLimited': 'Too many requests just now. Please wait a moment and try again.',
   'skillStore.search': 'Search skills by name or keyword, press Enter to search…',
   'skillStore.tabs.community': 'Community',
   'skillStore.tabs.custom': 'Custom',
@@ -1196,19 +1506,19 @@ When I am ___, I need ___
   'skillView.connectors': 'Connectors',
   'skillView.skills': 'Skills',
   'startConversation': 'Start Conversation',
-  'storage.actions.transfer.button': 'Move to...',
+  'storage.actions.transfer.button': 'Move to…',
   'storage.actions.transfer.desc':
     'Move agents and their data to another Workspace or your personal account. The originals leave the current space. LobeAI cannot be moved; copy it instead.',
   'storage.actions.transfer.title': 'Move Agents',
-  'storage.actions.transferAgentGroups.button': 'Move to...',
+  'storage.actions.transferAgentGroups.button': 'Move to…',
   'storage.actions.transferAgentGroups.desc':
     'Move groups, member Agents, and group conversation data to another Workspace or your personal account.',
   'storage.actions.transferAgentGroups.title': 'Move Groups',
-  'storage.actions.copyLobeAI.button': 'Copy to...',
+  'storage.actions.copyLobeAI.button': 'Copy to…',
   'storage.actions.copyLobeAI.desc':
     'Keep the originals and create independent copies in another Workspace or your personal account. Topics and messages are optional.',
   'storage.actions.copyLobeAI.title': 'Copy Agents',
-  'storage.actions.copyAgentGroups.button': 'Copy to...',
+  'storage.actions.copyAgentGroups.button': 'Copy to…',
   'storage.actions.copyAgentGroups.desc':
     'Copy agent groups and their member agents into another workspace or personal account.',
   'storage.actions.copyAgentGroups.title': 'Agent Groups Copy',
@@ -1306,6 +1616,12 @@ When I am ___, I need ___
   'systemAgent.agentMeta.modelDesc':
     'Model used to generate names, descriptions, avatars, and tags',
   'systemAgent.agentMeta.title': 'Profile Generation',
+  'systemAgent.expertise.modelDesc':
+    'Model used to draft expertise domains and extract reusable experience from conversations.',
+  'systemAgent.expertise.title': 'Agent Self-Evolution',
+  'systemAgent.goal.modelDesc':
+    'Model used to turn a persistent goal into its standing acceptance criteria.',
+  'systemAgent.goal.title': 'Goal Creation',
   'systemAgent.customPrompt.addPrompt': 'Add Custom Prompt',
   'systemAgent.customPrompt.desc':
     'Once filled out, the system agent will use the custom prompt when generating content',
@@ -1350,6 +1666,11 @@ When I am ___, I need ___
   'systemAgent.topic.label': 'Model',
   'systemAgent.topic.modelDesc': 'Model used to rename topics',
   'systemAgent.topic.title': 'Topic Auto-Naming',
+  'systemAgent.topicAutoSummary.modelDesc':
+    'Writes a short description and a reusable conversation summary after a topic becomes inactive.',
+  'systemAgent.topicAutoSummary.promptPlaceholder':
+    'Optional custom instructions. The conversation and required JSON output schema are added automatically.',
+  'systemAgent.topicAutoSummary.title': 'Automatic Topic Summary',
   'systemAgent.translation.label': 'Model',
   'systemAgent.translation.modelDesc': 'Model used to translate messages',
   'systemAgent.translation.title': 'Message Translation',
@@ -1390,6 +1711,7 @@ When I am ___, I need ___
   'tab.importFromGithub.desc': 'Import from a public GitHub repository',
   'tab.importFromUrl': 'Import from URL',
   'tab.importFromUrl.desc': 'Import via a direct link to SKILL.md',
+  'tab.labels': 'Labels',
   'tab.llm': 'Language Model',
   'tab.manualFill': 'Manually Fill In',
   'tab.manualFill.desc': 'Configure a custom MCP skill manually',
@@ -1561,6 +1883,8 @@ When I am ___, I need ___
   'workspace.billingPage.billing.change.currentPlanWithInterval': 'Current plan',
   'workspace.billingPage.billing.change.immediateChangeSeatReductionHint':
     'Reduce seats separately after this immediate plan change.',
+  'workspace.billingPage.billing.change.minPurchasedSeatsHintWithPending':
+    'This workspace has {{members}} billable members and {{pending}} pending invites, using {{used}} seats — at least {{count}} extra seats are required. Revoke a pending invite to go lower.',
   'workspace.billingPage.billing.change.minPurchasedSeatsHint':
     'This workspace currently has {{members}} billable members and requires at least {{count}} extra seats.',
   'workspace.billingPage.billing.change.preview': '{{seats}} seats · {{interval}} billing preview',
@@ -1572,6 +1896,8 @@ When I am ___, I need ___
     'One-time upgrades require a higher tier or a longer duration.',
   'workspace.billingPage.billing.change.memberLimitReached':
     'This workspace currently has {{count}} billable members. Remove members or change them to {{viewerRole}} before reducing seats further.',
+  'workspace.billingPage.billing.change.seatFloorPending':
+    'This workspace has {{members}} billable members and {{pending}} pending invites, using {{used}} seats. Revoke a pending invite before reducing seats further.',
   'workspace.billingPage.billing.change.seatReductionHint':
     'Reducing seats takes effect on the next billing cycle. The current cycle is not refunded.',
   'workspace.billingPage.billing.change.title': 'Adjust plan',
@@ -1592,6 +1918,8 @@ When I am ___, I need ___
   'workspace.billingPage.billing.upgradePlanModal.increaseSeats': 'Increase seats',
   'workspace.billingPage.billing.upgradePlanModal.purchasedSeatFloorSummary':
     'You already have {{count}} purchased extra seats — this change cannot go below that.',
+  'workspace.billingPage.billing.upgradePlanModal.memberSeatSummaryWithPending':
+    'This workspace has {{members}} billable members and {{pending}} pending invites, using {{used}} seats. At least {{count}} extra seats are required.',
   'workspace.billingPage.billing.upgradePlanModal.memberSeatSummary':
     'This workspace has {{members}} billable members. At least {{count}} extra seats are required.',
   'workspace.billingPage.billing.upgradePlanModal.noChargeToday': 'No charge today',
@@ -1965,15 +2293,21 @@ When I am ___, I need ___
   'workspace.billingPage.usage.spend': 'Spend',
   'workspace.billingPage.usage.summaryTitle': 'Usage',
   'workspace.billingPage.usage.type': 'Type',
+  'workspace.apiKey.policy.desc':
+    'Choose who can create personal API Keys that act on their behalf in this workspace.',
+  'workspace.apiKey.policy.options.allMembers': 'All members',
+  'workspace.apiKey.policy.options.onlyAdmins': 'Only admins',
+  'workspace.apiKey.policy.title': 'API Key creation',
+  'workspace.apiKey.policy.updateFailed': 'Failed to update the API Key creation policy',
   'workspace.apiKey.upgrade.benefits.integration.desc':
     'Call workspace agents and resources from your own systems via the LobeHub API.',
   'workspace.apiKey.upgrade.benefits.integration.title': 'Programmatic access',
   'workspace.apiKey.upgrade.benefits.security.desc':
-    'Requests stay bound to this workspace and require an active owner account.',
+    'Requests stay bound to the workspace and can never exceed the issuer’s current permissions.',
   'workspace.apiKey.upgrade.benefits.security.title': 'Workspace-scoped security',
   'workspace.apiKey.upgrade.benefits.shared.desc':
-    'Only workspace owners can create, view, manage, and revoke workspace API keys.',
-  'workspace.apiKey.upgrade.benefits.shared.title': 'Owner-managed keys',
+    'Admins can control member creation and centrally revoke active API Keys.',
+  'workspace.apiKey.upgrade.benefits.shared.title': 'Admin governance',
   'workspace.apiKey.upgrade.cta': 'Upgrade to Pro',
   'workspace.apiKey.upgrade.desc':
     'Create workspace-scoped API keys to integrate workspace agents and data into your own workflows and services.',
@@ -2000,6 +2334,7 @@ When I am ___, I need ___
   'workspace.auditLog.actions.api_key.renamed': 'API key renamed',
   'workspace.auditLog.actions.api_key.revoked': 'API key revoked',
   'workspace.auditLog.actions.api_key.rotated': 'API key rotated',
+  'workspace.auditLog.actions.api_key.updated': 'API key updated',
   'workspace.auditLog.actions.credential.created': 'Credential created',
   'workspace.auditLog.actions.credential.deleted': 'Credential deleted',
   'workspace.auditLog.actions.credential.tested': 'Credential tested',
@@ -2212,8 +2547,15 @@ When I am ___, I need ___
   'workspace.create.title': 'Create a new workspace',
   'workspace.description.title': 'Description',
   'workspace.general.avatar.description':
-    "This is your workspace's avatar. Click on the avatar to upload a custom one from your files.",
+    "This is your workspace's avatar. Upload your own, or generate one in the Lobe official style.",
+  'workspace.general.avatar.generating': 'Creating an avatar that matches this workspace…',
   'workspace.general.avatar.hint': 'An avatar is optional but strongly recommended.',
+  'workspace.general.avatar.studio.diyHint':
+    'Upload your own image — square works best, under 5 MB.',
+  'workspace.general.avatar.studio.generateHint':
+    "Pick a style and we'll create an avatar from this workspace's name and description.",
+  'workspace.general.avatar.studio.open': 'Customize appearance',
+  'workspace.general.avatar.studio.title': 'Workspace Appearance',
   'workspace.general.avatar.title': 'Workspace Avatar',
   'workspace.general.avatar.tooLarge': 'Avatar file must be smaller than 5MB.',
   'workspace.general.avatar.uploadFailed': 'Failed to upload avatar',
@@ -2268,17 +2610,43 @@ When I am ___, I need ___
   'workspace.general.leave.confirm.content':
     'You will lose access to "{{name}}" immediately. You can rejoin only if you are invited again.',
   'workspace.general.transferAgents.modal.back': 'Back',
+  'workspace.general.transferAgents.modal.backgroundMigration':
+    'Chat history is large, so it keeps migrating in the background. The agents are ready to use now; older conversations light up one by one as they finish.',
   'workspace.general.transferAgents.modal.continue': 'Continue',
   'workspace.general.transferAgents.modal.done': 'Done',
   'workspace.general.transferAgents.modal.failed': 'Failed to move agents',
   'workspace.general.transferAgents.modal.goToTarget': 'Go to {{target}}',
+  'workspace.general.transferAgents.modal.groupImpact.blocked':
+    "Some agents can't be moved on their own",
+  'workspace.general.transferAgents.modal.groupImpact.blockedDesc':
+    'They belong to a chat group rather than to you. Move the group instead, or remove them from it first, then try again.',
+  'workspace.general.transferAgents.modal.groupImpact.blockedHeading': 'Blocked by their group',
+  'workspace.general.transferAgents.modal.groupImpact.confirm': 'Move anyway',
+  'workspace.general.transferAgents.modal.groupImpact.leaving':
+    'Moving an agent takes it out of its chat groups',
+  'workspace.general.transferAgents.modal.groupImpact.leavingDesc':
+    'Each group keeps everything already said there — the agent just stops replying in it.',
+  'workspace.general.transferAgents.modal.groupImpact.leavingHeading': 'Will leave these groups',
+  'workspace.general.transferAgents.modal.groupImpact.loadFailed':
+    'Could not check chat group membership',
+  'workspace.general.transferAgents.modal.groupImpact.privateGroup': 'A group you cannot see',
+  'workspace.general.transferAgents.modal.groupImpact.untitledAgent': 'Untitled agent',
+  'workspace.general.transferAgents.modal.groupImpact.untitledGroup': 'Untitled group',
   'workspace.general.transferAgents.modal.loadFailed': 'Failed to load agents',
+  'workspace.general.transferAgents.modal.memberDesc':
+    'Hands ownership to this member. They must accept before anything changes; settings and everyone’s conversations stay untouched.',
+  'workspace.general.transferAgents.modal.memberGroup': 'Workspace members',
   'workspace.general.transferAgents.modal.moveAgent': 'Move Agent',
   'workspace.general.transferAgents.modal.moveAgentDesc':
-    'You can move to personal or workspaces that have permission to create an agent. All associated data moves with the agent: topics, file and knowledge base links, scheduled jobs, and related tasks. Custom plugins may not be available and multi-agent group associations will be removed.',
+    'You can move to personal or workspaces that have permission to create an agent. All associated data moves with the agent: topics, documents, custom plugins, file and knowledge base links, scheduled jobs, and related tasks. Multi-agent group associations will be removed, and moved connectors may need to be reauthorized.',
   'workspace.general.transferAgents.modal.moveTitle': 'Move',
   'workspace.general.transferAgents.modal.noAgents': 'No agents in this workspace',
+  'workspace.general.transferAgents.modal.requestSent': 'Transfer request sent',
+  'workspace.general.transferAgents.modal.requestSentDesc':
+    'Waiting for {{target}} to accept. Nothing changes until they do — you can withdraw the request from Notifications.',
   'workspace.general.transferAgents.modal.selectAgents': 'Select Agents to move to {{target}}.',
+  'workspace.general.transferAgents.modal.sendRequest': 'Send transfer request',
+  'workspace.general.transferAgents.modal.sendRequestCount': 'Send {{count}} transfer request(s)',
   'workspace.general.transferAgents.modal.selectPlaceholder':
     'Select workspace or personal account...',
   'workspace.general.transferAgents.modal.selectTarget':
@@ -2288,7 +2656,7 @@ When I am ___, I need ___
   'workspace.general.transferAgents.modal.title': 'Move Agents',
   'workspace.general.transferAgents.modal.transfer': 'Move {{count}} agent(s)',
   'workspace.general.transferAgents.modal.warning':
-    'Custom plugins may not be available and multi-agent group associations will be removed.',
+    'Multi-agent group associations will be removed, and moved connectors may need to be reauthorized.',
   'workspace.general.transferAgents.personalAccount': 'Personal Account',
   'workspace.general.transferScope.private.desc': 'Only accessible to you',
   'workspace.general.transferScope.private.label': 'Private',
@@ -2298,10 +2666,21 @@ When I am ___, I need ___
   'workspace.general.copyTargetLabel': 'Copy to',
   'workspace.general.transferTargetLabel': 'Move to',
   'workspace.general.transferAgentGroups.modal.back': 'Back',
+  'workspace.general.transferAgentGroups.modal.backgroundMigration':
+    'Chat history is large, so it keeps migrating in the background. The agent group is ready to use now; older conversations light up one by one as they finish.',
   'workspace.general.transferAgentGroups.modal.continue': 'Continue',
   'workspace.general.transferAgentGroups.modal.done': 'Done',
   'workspace.general.transferAgentGroups.modal.failed': 'Failed to transfer agent groups',
   'workspace.general.transferAgentGroups.modal.goToTarget': 'Go to {{target}}',
+  'workspace.general.transferAgentGroups.modal.externalMembers':
+    'Some members belong to their owners, not to the group',
+  'workspace.general.transferAgentGroups.modal.externalMembersConfirm': 'Move groups',
+  'workspace.general.transferAgentGroups.modal.externalMembersDesc':
+    'They stay where they are, and each group moves with its own copy of them so its history still makes sense.',
+  'workspace.general.transferAgentGroups.modal.externalMembersHeading': 'Members staying behind',
+  'workspace.general.transferAgentGroups.modal.externalMembersLoadFailed':
+    'Could not check which members belong to their owners',
+  'workspace.general.transferAgentGroups.modal.untitledAgent': 'Untitled agent',
   'workspace.general.transferAgentGroups.modal.loadFailed': 'Failed to load agent groups',
   'workspace.general.transferAgentGroups.modal.noGroups': 'No agent groups in this workspace',
   'workspace.general.transferAgentGroups.modal.selectGroups': 'Select agent groups to transfer.',
@@ -2313,8 +2692,8 @@ When I am ___, I need ___
   'workspace.general.transferAgentGroups.modal.selectedGroup': 'Agent group to transfer.',
   'workspace.general.transferAgentGroups.modal.success':
     '{{count}} agent group(s) transferred successfully',
-  'workspace.general.transferAgentGroups.modal.title': 'Transfer Agent Groups',
-  'workspace.general.transferAgentGroups.modal.transfer': 'Transfer {{count}} agent group(s)',
+  'workspace.general.transferAgentGroups.modal.title': 'Move Agent Groups',
+  'workspace.general.transferAgentGroups.modal.transfer': 'Move {{count}} agent group(s)',
   'workspace.general.transferAgentGroups.modal.untitledGroup': 'Untitled Agent Group',
   'workspace.general.copyLobeAI.modal.back': 'Back',
   'workspace.general.copyLobeAI.modal.continue': 'Continue',
@@ -2350,9 +2729,13 @@ When I am ___, I need ___
   'workspace.general.copyLobeAI.modal.selectTarget':
     'You can copy to personal or workspaces that have permission to create an agent.',
   'workspace.general.copyLobeAI.modal.success': '{{count}} agent(s) copied',
+  'workspace.general.copyLobeAI.modal.backgroundCopy':
+    'Chat history is large, so it keeps copying in the background. The agents are ready to use now; conversations light up one by one as they finish.',
   'workspace.general.copyLobeAI.modal.title': 'Copy Agents',
   'workspace.general.copyLobeAI.modal.untitledAgent': 'Untitled Agent',
   'workspace.general.copyAgentGroups.modal.back': 'Back',
+  'workspace.general.copyAgentGroups.modal.backgroundCopy':
+    'Chat history is large, so it keeps copying in the background. The agent group is ready to use now; conversations light up one by one as they finish.',
   'workspace.general.copyAgentGroups.modal.continue': 'Continue',
   'workspace.general.copyAgentGroups.modal.copyOptions.config.desc':
     'Required. Copies group metadata, members, member roles, and Agent profiles.',
@@ -2533,6 +2916,43 @@ When I am ___, I need ___
   'workspace.invitePage.workspaceLimitSubtitle':
     "You've reached the maximum of {{limit}} workspaces. Leave one before joining another.",
   'workspace.invitePage.workspaceLimitTitle': 'Workspace Limit Reached',
+  'workspace.waitlistPage.badge': 'Workspace · Private Beta',
+  'workspace.waitlistPage.createWorkspaceCta': 'Create workspace',
+  'workspace.waitlistPage.enabledSubtitle': 'Workspace is already enabled for your account.',
+  'workspace.waitlistPage.enabledTitle': 'Workspace is ready for you',
+  'workspace.waitlistPage.entryCta': 'Join Workspace Beta',
+  'workspace.waitlistPage.goHome': 'Back to LobeHub',
+  'workspace.waitlistPage.learnMore': 'Learn more about Workspace',
+  'workspace.waitlistPage.learnMoreNewTabHint': 'Opens in a new tab',
+  'workspace.waitlistPage.organizationLabel': 'Organization / Group (optional)',
+  'workspace.waitlistPage.organizationPlaceholder': 'Company, school, or family…',
+  'workspace.waitlistPage.pendingSubtitle':
+    "We're opening access in batches and will notify you by email as soon as your access is ready.",
+  'workspace.waitlistPage.pendingTitle': "You're on the list",
+  'workspace.waitlistPage.requiredField': 'This field is required',
+  'workspace.waitlistPage.rewardApprovedHint':
+    'After you create a workspace, your $5 beta credits will arrive automatically within a few minutes (valid for 3 months).',
+  'workspace.waitlistPage.rewardBanner':
+    'Get approved and create a workspace to receive $5 in free trial credits (valid for 3 months).',
+  'workspace.waitlistPage.roleLabel': 'Your role (optional)',
+  'workspace.waitlistPage.rolePlaceholder': 'e.g. Team lead, teacher, parent',
+  'workspace.waitlistPage.signIn': 'Sign in to join',
+  'workspace.waitlistPage.signUp': 'Create account & join',
+  'workspace.waitlistPage.signedOutSubtitle':
+    'Sign in or create a free account to join the Workspace beta waitlist.',
+  'workspace.waitlistPage.submit': 'Join the waitlist',
+  'workspace.waitlistPage.submitFailed': 'Failed to submit. Please try again.',
+  'workspace.waitlistPage.submitHint': "We'll email you as soon as your access is approved.",
+  'workspace.waitlistPage.subtitle': 'Members, agents, and knowledge in one shared space.',
+  'workspace.waitlistPage.teamSizeLabel': 'How many people',
+  'workspace.waitlistPage.teamSizeOption.1': 'Just me for now',
+  'workspace.waitlistPage.teamSizeOption.2-10': '2–10',
+  'workspace.waitlistPage.teamSizeOption.11-50': '11–50',
+  'workspace.waitlistPage.teamSizeOption.50+': '50+',
+  'workspace.waitlistPage.title': 'Where your team and AI work together',
+  'workspace.waitlistPage.useCaseLabel': 'What will you use Workspace for?',
+  'workspace.waitlistPage.useCasePlaceholder':
+    'Who is involved, how you collaborate, what you want solved?',
   'workspace.members.columns.joinedAt': 'Joined',
   'workspace.members.columns.name': 'Name',
   'workspace.members.columns.role': 'Role',
@@ -2562,6 +2982,12 @@ When I am ___, I need ___
   'workspace.members.invite.freePlanAskOwnerToUpgrade':
     'This Free workspace can’t invite more members. Ask the workspace owner to upgrade to Pro, or invite viewers instead (they don’t take a seat).',
   'workspace.members.invite.upgradePlanCta': 'Upgrade plan',
+  'workspace.members.invite.seatLimitReached':
+    'All seats are in use. Buy more seats to keep inviting, or invite viewers instead (they don’t take a seat).',
+  'workspace.members.invite.seatLimitReachedFreePlan':
+    'All seats on your Free workspace are in use. Upgrade to Pro for more seats, or invite viewers instead (they don’t take a seat).',
+  'workspace.members.invite.seatLimitReachedNoBuy':
+    'All seats are in use. Ask the workspace owner to buy more seats, or invite viewers instead (they don’t take a seat).',
   'workspace.members.invite.roleLabel': 'Role',
   'workspace.members.invite.submit': 'Invite',
   'workspace.members.invite.addAnother': 'Add another',
@@ -2592,6 +3018,12 @@ When I am ___, I need ___
   'workspace.members.pending.revokeFailed': 'Failed to revoke invitation',
   'workspace.members.seatChange.memberJoinBlocked':
     'Current members have reached the scheduled seat limit, so new paid members may not be able to join this workspace',
+  'workspace.members.seatBreakdown':
+    '{{members}} billable members + {{pending}} pending invites = {{used}} of {{capacity}} seats used. Viewers don’t take a seat.',
+  'workspace.members.seatBreakdownNoPending':
+    '{{members}} billable members use {{used}} of {{capacity}} seats. Viewers don’t take a seat.',
+  'workspace.members.seatPending_one': '{{count}} invite pending',
+  'workspace.members.seatPending_other': '{{count}} invites pending',
   'workspace.members.seatUsage_one': '{{used}} / {{capacity}} seat',
   'workspace.members.seatUsage_other': '{{used}} / {{capacity}} seats',
   'workspace.members.subtitle': 'Manage workspace members and invitations',
@@ -2799,6 +3231,9 @@ When I am ___, I need ___
     'Only workspace owners can do this. Ask an owner if you need this changed.',
   'workspace.permission.requiresPrimaryOwner':
     'Only the workspace Owner can delete this workspace. Transfer ownership first if needed.',
+  // Not a role gate: the agent's author reserved topic sharing on the Permission page.
+  'workspace.permission.topicShareRestricted':
+    'This agent only lets its creator and workspace owners share topics. Ask them if you need a link.',
   'workspace.onboarding.title': 'Set up your workspace',
   'workspace.onboarding.stepLabel': 'Step {{current}} of {{total}}',
   'workspace.onboarding.skip': 'Skip',
@@ -2923,17 +3358,50 @@ When I am ___, I need ___
   'workspaceSetting.devices.unknownEnroller': 'an unknown member',
   'workspaceSetting.group.admin': 'Admin',
   'workspaceSetting.group.agent': 'Agent',
-  'workspaceSetting.group.general': 'General',
+  'workspaceSetting.group.workspace': 'Workspace',
+  'workspaceSetting.labels.actions.archive': 'Archive',
+  'workspaceSetting.labels.actions.create': 'New label',
+  'workspaceSetting.labels.actions.unarchive': 'Restore',
+  'workspaceSetting.labels.archive.desc':
+    'This label will no longer be available to apply to agents. Agents with the label already applied will remain unchanged.',
+  'workspaceSetting.labels.archive.success': 'Label archived',
+  'workspaceSetting.labels.archive.title': 'Archive "{{name}}"?',
+  'workspaceSetting.labels.archivedEmpty': 'No archived labels',
+  'workspaceSetting.labels.columns.created': 'Created',
+  'workspaceSetting.labels.columns.description': 'Description',
+  'workspaceSetting.labels.columns.name': 'Name',
+  'workspaceSetting.labels.columns.usage': 'Agents',
+  'workspaceSetting.labels.delete.archiveHint':
+    'To prevent future application of this label, archive the label instead.',
+  'workspaceSetting.labels.delete.confirmHint': 'To confirm, type "delete" below:',
+  'workspaceSetting.labels.delete.desc': 'Deletion cannot be undone.',
+  'workspaceSetting.labels.delete.descUsed':
+    'This label will be removed from {{count}} agents. Deletion cannot be undone.',
+  'workspaceSetting.labels.delete.success': 'Label deleted',
+  'workspaceSetting.labels.delete.title': 'Delete the label "{{name}}"?',
+  'workspaceSetting.labels.empty': 'No labels yet. Create one to organize your agents.',
+  'workspaceSetting.labels.filterEmpty': 'No labels match the filter',
+  'workspaceSetting.labels.filterPlaceholder': 'Filter by name...',
+  'workspaceSetting.labels.loadFailed': "Couldn't load labels",
+  'workspaceSetting.labels.form.color': 'Color',
+  'workspaceSetting.labels.form.createTitle': 'New label',
+  'workspaceSetting.labels.form.description': 'Description',
+  'workspaceSetting.labels.form.descriptionPlaceholder': 'Optional description',
+  'workspaceSetting.labels.form.duplicateName': 'A label with this name already exists',
+  'workspaceSetting.labels.form.editTitle': 'Edit label',
+  'workspaceSetting.labels.form.restoreTitle': 'Rename to restore',
+  'workspaceSetting.labels.form.name': 'Name',
+  'workspaceSetting.labels.form.namePlaceholder': 'Label name',
+  'workspaceSetting.labels.manageBlocked': 'Only workspace admins can manage labels',
+  'workspaceSetting.labels.scope.archived': 'Archived',
+  'workspaceSetting.labels.scope.personal': 'Personal',
+  'workspaceSetting.labels.scope.workspace': 'Workspace',
+  'workspaceSetting.labels.usage': '{{count}} agents',
   'workspaceSetting.tab.auditLog': 'Audit logs',
   'workspaceSetting.tab.general': 'General',
+  'workspaceSetting.tab.labels': 'Labels',
   'workspaceSetting.tab.members': 'Members',
   'workspaceSetting.storage.comingSoon': 'Workspace-scoped data import & export is coming soon.',
-  'workspaceSetting.storage.danger.reset.confirm.content':
-    'Every workspace setting goes back to its default, for everyone in the workspace. Agents, conversations, and files are not touched.',
-  'workspaceSetting.storage.danger.reset.confirm.ok': 'Reset Settings',
-  'workspaceSetting.storage.danger.reset.desc':
-    'Restore all workspace settings to defaults. Workspace data will not be deleted.',
-  'workspaceSetting.storage.danger.reset.title': 'Reset Workspace Settings',
   'workspaceSetting.storage.telemetry.desc':
     'Help us improve {{appName}} with anonymous workspace usage data',
   'workspaceSetting.storage.telemetry.title': 'Send Anonymous Workspace Usage Data',
@@ -2984,12 +3452,12 @@ When I am ___, I need ___
     'Configure agent metadata, model settings, plugins, and the system prompt',
   'tools.builtins.lobe-agent-builder.title': 'Agent Builder',
   'tools.builtins.lobe-agent-documents.description':
-    'Manage agent-scoped documents (list, create, read, edit, remove, rename) and load rules',
+    'Manage agent-scoped documents (list, create, read, edit, remove, rename) and load rules. Not for your uploaded files — see Knowledge Base for those.',
   'tools.builtins.lobe-agent-documents.title': 'Documents',
   'tools.builtins.lobe-agent-management.description': 'Create, manage, and orchestrate AI agents',
   'tools.builtins.lobe-agent-management.title': 'Agent Management',
   'tools.builtins.lobe-agent.description':
-    'Built-in Lobe Agent capabilities: plan and todo management, sub-agent dispatch, and visual media analysis',
+    'Built-in Lobe Agent capabilities: plan and todo management, sub-agent dispatch, and multimodal media analysis',
   'tools.builtins.lobe-agent.title': 'Lobe Agent',
   'tools.builtins.lobe-brief.description':
     'Report progress, deliver results, and request user decisions',
@@ -2997,9 +3465,6 @@ When I am ___, I need ___
   'tools.builtins.lobe-creds.description':
     'Manage user credentials for authentication, environment variable injection, and API verification — handle API keys, OAuth tokens, and secrets for third-party integrations.',
   'tools.builtins.lobe-creds.title': 'Credentials',
-  'tools.builtins.lobe-cron.description':
-    'Manage scheduled tasks that run automatically at specified times. Create, update, enable/disable, and monitor recurring tasks for your agents.',
-  'tools.builtins.lobe-cron.title': 'Scheduled Tasks',
   'tools.builtins.lobe-group-agent-builder.description':
     'Configure group metadata, members, and shared content for multi-agent groups',
   'tools.builtins.lobe-group-agent-builder.title': 'Group Agent Builder',
@@ -3007,7 +3472,7 @@ When I am ___, I need ___
     'Orchestrate and manage multi-agent group conversations',
   'tools.builtins.lobe-group-management.title': 'Group Management',
   'tools.builtins.lobe-knowledge-base.description':
-    'Search uploaded documents and domain knowledge via semantic vector search — for persistent, reusable reference',
+    'Find, browse, and read your uploaded files, and search organized knowledge bases via semantic vector search',
   'tools.builtins.lobe-knowledge-base.title': 'Knowledge Base',
   'tools.builtins.lobe-message.description':
     'Send, read, edit, and manage messages across multiple messaging platforms with a unified interface',
@@ -3030,7 +3495,7 @@ When I am ___, I need ___
   'tools.builtins.lobe-skills.description': 'Activate and use reusable skill packages',
   'tools.builtins.lobe-skills.title': 'Skills',
   'tools.builtins.lobe-task.description':
-    'Create, list, edit, and delete tasks with dependencies and review configuration',
+    'Create, schedule, list, edit, and delete tasks with dependencies and review configuration',
   'tools.builtins.lobe-task.title': 'Task Tools',
   'tools.builtins.lobe-topic-reference.description':
     'Retrieve context from referenced topic conversations',
@@ -3043,6 +3508,11 @@ When I am ___, I need ___
   'tools.builtins.lobe-web-browsing.readme':
     'Search the web for current information and crawl web pages to extract content. Supports multiple search engines, categories, and time ranges for comprehensive research.',
   'tools.builtins.lobe-web-browsing.title': 'Web Browsing',
+  'tools.builtins.lobe-image-generation.description':
+    'Generate images through LobeHub providers when the current chat model has no native image output.',
+  'tools.builtins.lobe-image-generation.readme':
+    'Opt-in image generation for models without native image output. Pin this tool to enable it in chat or agent mode; leave unpinned to avoid the tool schema cost.',
+  'tools.builtins.lobe-image-generation.title': 'Image Generation',
   'tools.builtins.lobe-web-onboarding.description':
     'Drive the web onboarding flow with a controlled agent runtime',
   'tools.builtins.lobe-web-onboarding.title': 'Web Onboarding',
@@ -3050,6 +3520,9 @@ When I am ___, I need ___
   'tools.builtins.find-skills.description':
     'Helps users discover and install agent skills when they ask "how do I do X", "find a skill for X", or want to extend capabilities',
   'tools.builtins.find-skills.title': 'Find Skills',
+  'tools.builtins.lobe-computer-use.title': 'Computer Use',
+  'tools.builtins.lobe-computer-use.description':
+    'Use desktop applications, interact with controls, and capture the screen.',
   'tools.builtins.lobe-agent-browser.description':
     'Browser automation CLI for AI agents. Use when tasks involve website or Electron interaction such as navigation, form filling, clicking, screenshot capture, scraping data, login flows, and end-to-end app testing.',
   'tools.builtins.lobe-agent-browser.title': 'Agent Browser',
@@ -3128,11 +3601,6 @@ When I am ___, I need ___
 
   'tools.composio.servers.figma.readme':
     'Connect to Figma to access design files and collaborate on projects. View designs, export assets, browse components, and manage your design workflow through natural conversation.',
-
-  'tools.composio.servers.github.description': 'Enhanced GitHub MCP Server',
-
-  'tools.composio.servers.github.readme':
-    'Connect to GitHub to manage repositories, issues, pull requests, and code. Search code, review changes, create branches, and collaborate on software development projects through conversational AI.',
 
   // Composio Servers i18n
   'tools.composio.servers.gmail.description': 'Gmail is a free email service provided by Google',

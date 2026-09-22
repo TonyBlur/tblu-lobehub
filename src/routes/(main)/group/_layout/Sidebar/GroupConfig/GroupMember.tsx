@@ -1,6 +1,8 @@
 'use client';
 
-import { ActionIcon, Flexbox } from '@lobehub/ui';
+import { agentDisplayName } from '@lobechat/types';
+import { Flexbox } from '@lobehub/ui';
+import { ActionIcon } from '@lobehub/ui/base-ui';
 import { createStaticStyles } from 'antd-style';
 import { UserMinus } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
@@ -122,7 +124,7 @@ const GroupMember = memo<GroupMemberProps>(({ addModalOpen, onAddModalOpenChange
                   avatar={item.avatar || DEFAULT_AVATAR}
                   background={item.backgroundColor ?? undefined}
                   isExternal={!item.virtual}
-                  title={item.title || t('defaultSession', { ns: 'common' })}
+                  title={agentDisplayName(item, t('defaultSession', { ns: 'common' }))}
                   actions={
                     <ActionIcon
                       danger

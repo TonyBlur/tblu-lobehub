@@ -1,4 +1,6 @@
-import { Icon, Text } from '@lobehub/ui';
+import { agentDisplayName } from '@lobechat/types';
+import { Icon } from '@lobehub/ui';
+import { Text } from '@lobehub/ui/base-ui';
 import { Breadcrumb as AntBreadcrumb } from 'antd';
 import { ChevronRight } from 'lucide-react';
 import { memo } from 'react';
@@ -28,7 +30,8 @@ const Breadcrumb = memo<BreadcrumbProps>(({ taskId }) => {
   const ancestors = useTaskStore(
     useShallow((s) => {
       if (!taskId) return [];
-      const chain: Array<{ agentId?: string | null; identifier: string }> = [];
+      const chain: Array<{ agentId?: string | null; identifier: string; name?: string | null }> =
+        [];
       const visited = new Set<string>([taskId]);
       let cursor = s.taskDetailMap[taskId]?.parent;
       while (cursor?.identifier && !visited.has(cursor.identifier)) {
@@ -37,6 +40,7 @@ const Breadcrumb = memo<BreadcrumbProps>(({ taskId }) => {
         chain.push({
           agentId: cursor.agentId === undefined ? detail?.agentId : cursor.agentId,
           identifier: cursor.identifier,
+          name: cursor.name ?? detail?.name,
         });
         cursor = detail?.parent;
       }
@@ -62,7 +66,7 @@ const Breadcrumb = memo<BreadcrumbProps>(({ taskId }) => {
               type={taskId ? undefined : 'secondary'}
               weight={500}
             >
-              {agentMeta.title}
+              {agentDisplayName(agentMeta)}
             </Text>
           ),
         }
@@ -78,10 +82,10 @@ const Breadcrumb = memo<BreadcrumbProps>(({ taskId }) => {
         }
       : agentCrumb;
 
-  const ancestorCrumbs = ancestors.map(({ identifier, agentId }) => ({
+  const ancestorCrumbs = ancestors.map(({ identifier, agentId, name }) => ({
     key: identifier,
     title: (
-      <WorkspaceLink to={taskDetailPath(identifier, agentId ?? undefined)}>
+      <WorkspaceLink to={taskDetailPath(identifier, agentId ?? undefined, name)}>
         <Text color={'inherit'} weight={500}>
           {identifier}
         </Text>

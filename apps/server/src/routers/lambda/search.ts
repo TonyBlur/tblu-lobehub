@@ -2,10 +2,12 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { wsCompatProcedure } from '@/business/server/trpc-middlewares/workspaceAuth';
-import { SearchRepo } from '@/database/repositories/search';
 import { router } from '@/libs/trpc/lambda';
 import { resolveMarketUserContext, serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { DiscoverService } from '@/server/services/discover';
+import { createFtsSearchRepo } from '@/server/services/ftsSearch';
+
+import { getRestrictedKnowledgeBaseIds } from './_helpers/knowledgeBaseAccess';
 
 const MARKETPLACE_SEARCH_TYPES = new Set(['communityAgent', 'mcp', 'plugin']);
 
@@ -39,7 +41,6 @@ const searchProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) =
   const { ctx } = opts;
   const rawInput = (await opts.getRawInput()) as
     { includeMarketplace?: unknown; type?: unknown } | undefined;
-  const wsId = ctx.workspaceId ?? undefined;
   // Marketplace identity is only needed when the marketplace will be queried;
   // DB-only searches skip the extra auth round-trip.
   const marketContext = wantsMarketplace(rawInput)
@@ -52,7 +53,6 @@ const searchProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) =
         accessToken: marketContext.marketAccessToken ?? ctx.marketAccessToken,
         userInfo: marketContext.marketUserInfo,
       }),
-      searchRepo: new SearchRepo(ctx.serverDB, ctx.userId, wsId),
     },
   });
 });
@@ -121,7 +121,23 @@ export const searchRouter = router({
           'knowledgeBase',
         ].includes(type)
       ) {
-        searchPromises.push(ctx.searchRepo.search(input));
+        // Restricted (member No-access) KBs and their linked files/folders/
+        // pages must not be discoverable through unified search either —
+        // mirror the library-list filter. Only the KB-adjacent types consume
+        // the exclusion, so other typed searches skip the extra lookups on
+        // this debounced search-as-you-type path.
+        const needsKbExclusion =
+          !type || ['file', 'folder', 'knowledgeBase', 'page'].includes(type);
+        const [excludeKnowledgeBaseIds, ftsSearchRepo] = await Promise.all([
+          needsKbExclusion ? getRestrictedKnowledgeBaseIds(ctx) : [],
+          createFtsSearchRepo({
+            db: ctx.serverDB,
+            userId: ctx.userId,
+            usage: 'unified_search',
+            workspaceId: ctx.workspaceId ?? undefined,
+          }),
+        ]);
+        searchPromises.push(ftsSearchRepo.search({ ...input, excludeKnowledgeBaseIds }));
       }
 
       // Marketplace searches: see `includeMarketplace` on the input schema —
@@ -244,7 +260,7 @@ export const searchRouter = router({
       // Execute searches in parallel and merge results
       const results = await Promise.all(searchPromises);
 
-      // Results arrive pre-ordered per type (DB types from SearchRepo with
+      // Results arrive pre-ordered per type (DB types from FtsSearchRepo with
       // topics/messages by recency, marketplace types from the discover service).
       // The command palette groups results by type, so we keep each source's order
       // instead of re-sorting the merged list by relevance.

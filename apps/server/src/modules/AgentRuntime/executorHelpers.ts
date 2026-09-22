@@ -1,7 +1,7 @@
 import { type AgentState } from '@lobechat/agent-runtime';
 import { LobeActivatorIdentifier } from '@lobechat/builtin-tool-activator';
 import { dispatchWorkRegistrationIntent } from '@lobechat/builtin-tools/workRegistration';
-import { resolveSubAgentModel } from '@lobechat/const';
+import { getSubAgentChatConfigOverride, resolveSubAgentModel } from '@lobechat/const';
 import { type OperationToolSet } from '@lobechat/context-engine';
 import { type ToolType } from '@lobechat/observability-otel/modules/agent-runtime';
 import {
@@ -36,6 +36,21 @@ export const TOOL_PRICING: Record<string, number> = {
 export const TOOL_MAX_RETRIES = 2;
 
 export const GEN_AI_FUNCTION_TOOL_TYPE: ToolType = 'function';
+
+/**
+ * Models occasionally select a member by its displayed name even though group
+ * management actions require its persisted agent id. Accept an exact display
+ * name only when it resolves unambiguously within this operation's snapshot.
+ */
+export const resolveGroupMemberId = (
+  requestedAgentId: string,
+  agentMap: Record<string, { name: string }> | undefined,
+): string => {
+  if (!agentMap || requestedAgentId in agentMap) return requestedAgentId;
+
+  const matches = Object.entries(agentMap).filter(([, member]) => member.name === requestedAgentId);
+  return matches.length === 1 ? matches[0][0] : requestedAgentId;
+};
 
 export const archiveRuntimeToolResult = async (
   result: ToolExecutionResultResponse,
@@ -197,20 +212,32 @@ export const buildServerVirtualSubAgentRunner = (
   chatToolPayload: ChatToolPayload,
   parentMessageId: string,
 ): ServerSubAgentRunner | undefined => {
+  // Share-visitor runs never get a sub-agent runner: the child run spawned
+  // here does not thread the parent's shareGate, so it would execute with the
+  // creator's full unrestricted tool surface. Same fail-closed stance as
+  // `ServerSubAgentTransport` and the `isShareBlockedBuiltinDispatch` gate.
+  if (ctx.agentShareVisitor) return undefined;
   const execVirtualSubAgent = ctx.execVirtualSubAgent;
   if (!execVirtualSubAgent) return undefined;
 
-  const agentId = state.metadata?.agentId;
-  const topicId = ctx.topicId ?? state.metadata?.topicId;
+  const agentId = state.origin?.agentId;
+  const topicId = ctx.topicId ?? state.origin?.topicId;
   if (!agentId || !topicId) return undefined;
 
-  const parentAgentConfig = state.metadata?.agentConfig as LobeAgentConfig | undefined;
+  const parentAgentConfig = state.world?.agent as LobeAgentConfig | undefined;
+  // The model the parent run ACTUALLY uses. `world.agent` alone is not
+  // enough: when a run continues a topic whose model was switched, execAgent
+  // keeps the topic-pinned model only in `modelRuntimeConfig` while the
+  // world config retains the agent default.
+  const parentEffectiveModel = state.modelRuntimeConfig ?? parentAgentConfig;
 
   return {
     run: async ({ agentId: targetAgentId, description, instruction, timeout }) => {
       // This runner serves two tools, and only one of them may swap the model:
       //   - `callSubAgent` names no agent, so the child is an anonymous clone of
-      //     the parent — it takes the parent's `agencyConfig.subagent` model.
+      //     the parent — it takes the parent's `agencyConfig.subagent` override,
+      //     or follows the parent's effective (topic-pinned) model when none is
+      //     configured.
       //   - `callAgent` names an existing agent, which carries a model the user
       //     configured on it. Overriding that would discard a deliberate choice,
       //     the same way forcing a group member onto the sub-agent default would.
@@ -218,7 +245,12 @@ export const buildServerVirtualSubAgentRunner = (
       // re-derive it from the parent config.
       const subAgentModel = targetAgentId
         ? undefined
-        : resolveSubAgentModel(parentAgentConfig?.agencyConfig?.subagent);
+        : resolveSubAgentModel(parentAgentConfig?.agencyConfig?.subagent, parentEffectiveModel);
+      // Thinking / reasoning-effort overrides configured for the sub-agent
+      // model; same callSubAgent-only carve-out as the model above.
+      const subAgentChatConfig = targetAgentId
+        ? undefined
+        : getSubAgentChatConfigOverride(parentAgentConfig?.agencyConfig?.subagent);
 
       // 1. Create the pending placeholder tool message (mirrors the normal
       //    tool-message shape in call_tool) that anchors the isolation thread
@@ -226,12 +258,12 @@ export const buildServerVirtualSubAgentRunner = (
       const placeholder = await ctx.messageModel.create({
         agentId,
         content: '',
-        groupId: state.metadata?.groupId ?? undefined,
+        groupId: state.origin?.groupId ?? undefined,
         parentId: parentMessageId,
         plugin: chatToolPayload as any,
         pluginState: { status: 'pending' },
         role: 'tool',
-        threadId: state.metadata?.threadId,
+        threadId: state.origin?.threadId,
         tool_call_id: chatToolPayload.id,
         topicId,
       });
@@ -241,7 +273,8 @@ export const buildServerVirtualSubAgentRunner = (
       //    bridge that backfills this tool message and resumes the parent op.
       const result = (await execVirtualSubAgent({
         agentId: targetAgentId ?? agentId,
-        groupId: state.metadata?.groupId ?? undefined,
+        chatConfig: subAgentChatConfig,
+        groupId: state.origin?.groupId ?? undefined,
         instruction,
         model: subAgentModel?.model,
         parentMessageId: placeholder.id,
@@ -259,7 +292,9 @@ export const buildServerVirtualSubAgentRunner = (
       //    an inline tool error instead.
       if (!result?.success) {
         try {
-          await ctx.messageModel.deleteMessage(placeholder.id);
+          // Runtime placeholder cleanup — also valid inside an agent-share
+          // visitor topic, hence the explicit opt-in.
+          await ctx.messageModel.deleteMessage(placeholder.id, { includeShareVisitor: true });
         } catch (error) {
           log(
             'buildServerVirtualSubAgentRunner: failed to clean up placeholder %s: %O',
@@ -309,17 +344,27 @@ export const buildServerAgentMemberRunner = (
   chatToolPayload: ChatToolPayload,
   parentMessageId: string,
 ): ServerAgentMemberRunner | undefined => {
+  // Same share-visitor fail-close as `buildServerVirtualSubAgentRunner`:
+  // member runs would not inherit the parent's shareGate.
+  if (ctx.agentShareVisitor) return undefined;
   const execGroupMember = ctx.execGroupMember;
   if (!execGroupMember) return undefined;
 
-  const agentId = state.metadata?.agentId;
-  const topicId = ctx.topicId ?? state.metadata?.topicId;
-  const groupId = state.metadata?.groupId ?? undefined;
+  const agentId = state.origin?.agentId;
+  const topicId = ctx.topicId ?? state.origin?.topicId;
+  const groupId = state.origin?.groupId ?? undefined;
   if (!agentId || !topicId || !groupId) return undefined;
 
   return {
     run: async ({ members, mode, onComplete, disableTools, timeout }) => {
-      const expectedMembers = members.length;
+      const agentMap = (
+        state.world?.group as { agentMap?: Record<string, { name: string }> } | undefined
+      )?.agentMap;
+      const resolvedMembers = members.map((member) => ({
+        ...member,
+        agentId: resolveGroupMemberId(member.agentId, agentMap),
+      }));
+      const expectedMembers = resolvedMembers.length;
       if (expectedMembers === 0) return { started: false, startedCount: 0 };
 
       // In-group multi-member actions (broadcast) render as an AgentCouncil: each
@@ -342,7 +387,7 @@ export const buildServerAgentMemberRunner = (
         plugin: chatToolPayload as any,
         pluginState: { expectedMembers, onComplete, status: 'pending' },
         role: 'tool',
-        threadId: state.metadata?.threadId,
+        threadId: state.origin?.threadId,
         tool_call_id: chatToolPayload.id,
         topicId,
       });
@@ -367,7 +412,7 @@ export const buildServerAgentMemberRunner = (
             plugin: { ...(chatToolPayload as any), id: memberToolCallId },
             pluginState: { status: 'pending' },
             role: 'tool',
-            threadId: state.metadata?.threadId,
+            threadId: state.origin?.threadId,
             tool_call_id: memberToolCallId,
             topicId,
           });
@@ -378,7 +423,7 @@ export const buildServerAgentMemberRunner = (
       // 3. Fork members.
       let startedCount = 0;
       await Promise.all(
-        members.map(async (member, i) => {
+        resolvedMembers.map(async (member, i) => {
           const anchorMessageId = anchorIds[i];
           try {
             const result = await execGroupMember({
@@ -431,7 +476,8 @@ export const buildServerAgentMemberRunner = (
       if (startedCount === 0) {
         for (const id of new Set([...anchorIds, groupTool.id])) {
           try {
-            await ctx.messageModel.deleteMessage(id);
+            // Runtime placeholder cleanup — see the sub-agent runner above.
+            await ctx.messageModel.deleteMessage(id, { includeShareVisitor: true });
           } catch (error) {
             log('buildServerAgentMemberRunner: cleanup failed for %s: %O', id, error);
           }
@@ -442,16 +488,6 @@ export const buildServerAgentMemberRunner = (
       return { started: true, startedCount };
     },
   };
-};
-
-export const resolveRuntimeHistoryCount = (historyCount?: number) => {
-  if (historyCount === undefined) return undefined;
-
-  // Agent config stores historical message count, excluding the current turn.
-  // Runtime executors already pass the current user/tool turn in `llmPayload.messages`;
-  // without this +1, `historyCount: 0` truncates the current message too and sends
-  // `messages: []` to providers.
-  return historyCount + 1;
 };
 
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

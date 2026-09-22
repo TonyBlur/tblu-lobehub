@@ -1,6 +1,6 @@
 import { type MenuProps } from '@lobehub/ui';
 import { Icon } from '@lobehub/ui';
-import { confirmModal } from '@lobehub/ui/base-ui';
+import { confirmModal, toast } from '@lobehub/ui/base-ui';
 import { App, Upload } from 'antd';
 import { css, cx } from 'antd-style';
 import { Archive, Hash, Import, LucideCheck, Trash } from 'lucide-react';
@@ -37,7 +37,7 @@ export const useTopicActionsDropdownMenu = (
   options: UseTopicActionsDropdownMenuOptions = {},
 ): MenuProps['items'] => {
   const { t } = useTranslation(['topic', 'common']);
-  const { message, modal } = App.useApp();
+  const { modal } = App.useApp();
   const { onUploadClose } = options;
   const activeWorkspaceId = useActiveWorkspaceId();
   const isWorkspaceOwner = useIsWorkspaceOwner();
@@ -93,7 +93,7 @@ export const useTopicActionsDropdownMenu = (
       });
 
       if (mergedTopics.length === 0) {
-        message.info(t('actions.archiveMergedPullRequestsNone'));
+        toast.info(t('actions.archiveMergedPullRequestsNone'));
         return;
       }
 
@@ -101,11 +101,9 @@ export const useTopicActionsDropdownMenu = (
         mergedTopics.map(({ id }) => updateTopicStatus({ status: 'completed', topicId: id })),
       );
       await refreshTopic();
-      message.success(
-        t('actions.archiveMergedPullRequestsSuccess', { count: mergedTopics.length }),
-      );
+      toast.success(t('actions.archiveMergedPullRequestsSuccess', { count: mergedTopics.length }));
     },
-    [activeWorkspaceId, currentUserId, message, refreshTopic, t, topics, updateTopicStatus],
+    [activeWorkspaceId, currentUserId, refreshTopic, t, topics, updateTopicStatus],
   );
 
   const handleImport = useCallback(
@@ -183,45 +181,6 @@ export const useTopicActionsDropdownMenu = (
             : 'actions.archiveMergedPullRequests',
         ),
         onClick: () => handleArchiveMergedPullRequests('own'),
-      },
-      {
-        disabled: !canEditTopic,
-        icon: <Icon icon={Trash} />,
-        key: 'deleteUnstarred',
-        label: t(activeWorkspaceId ? 'actions.removeUnstarredOwn' : 'actions.removeUnstarred'),
-        onClick: () => {
-          confirmModal({
-            cancelText: t('cancel', { ns: 'common' }),
-            content: t(
-              activeWorkspaceId
-                ? 'actions.confirmRemoveUnstarredOwn'
-                : 'actions.confirmRemoveUnstarred',
-            ),
-            okButtonProps: { danger: true },
-            okText: t('ok', { ns: 'common' }),
-            onOk: () => removeUnstarredTopic({ onlyOwn: !!activeWorkspaceId }),
-            title: t(activeWorkspaceId ? 'actions.removeUnstarredOwn' : 'actions.removeUnstarred'),
-          });
-        },
-      },
-      {
-        danger: true,
-        disabled: !canEditTopic,
-        icon: <Icon icon={Trash} />,
-        key: 'deleteAll',
-        label: t(activeWorkspaceId ? 'actions.removeAllOwn' : 'actions.removeAll'),
-        onClick: () => {
-          confirmModal({
-            cancelText: t('cancel', { ns: 'common' }),
-            content: t(
-              activeWorkspaceId ? 'actions.confirmRemoveAllOwn' : 'actions.confirmRemoveAll',
-            ),
-            okButtonProps: { danger: true },
-            okText: t('ok', { ns: 'common' }),
-            onOk: () => removeAllTopic('own'),
-            title: t(activeWorkspaceId ? 'actions.removeAllOwn' : 'actions.removeAll'),
-          });
-        },
       },
       ...(activeWorkspaceId && isWorkspaceOwner
         ? [

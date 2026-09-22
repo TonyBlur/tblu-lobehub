@@ -1,5 +1,11 @@
-import type { VerifyRunStatus } from '@lobechat/types';
-import { and, eq, gte, isNotNull, or, sql } from 'drizzle-orm';
+import {
+  type AgentOperationCompletionReason,
+  type AgentOperationStatus,
+  isServerDefaultHeterogeneousRelayInvocation,
+  type ServerDefaultHeterogeneousRelayInvocation,
+  type VerifyRunStatus,
+} from '@lobechat/types';
+import { and, eq, gte, inArray, isNotNull, or, sql } from 'drizzle-orm';
 
 import { today } from '@/utils/time';
 
@@ -11,6 +17,7 @@ import type {
 } from '../schemas/agentOperations';
 import { agentOperations } from '../schemas/agentOperations';
 import type { LobeChatDatabase } from '../type';
+import { notShareVisitorTopicRef } from '../utils/shareVisitor';
 import { buildWorkspaceWhere } from '../utils/workspace';
 
 /**
@@ -43,6 +50,51 @@ export interface RecordOperationStartParams {
   trigger?: string;
 }
 
+export interface AgentInterventionDispatchMarker {
+  deduplicationId: string;
+  messageId: string;
+  resolutionRequestId: string;
+  scheduledAt: string;
+  state: 'scheduled';
+}
+
+export interface AgentInterventionPreparationMarker {
+  deduplicationId: string;
+  resolutionRequestId: string;
+  state: 'ready';
+  stepIndex: number;
+}
+
+/** Why `heteroIngest` refused a batch — see {@link HeteroIngestRejectionMarker}. */
+export type HeteroIngestRejectionReason = 'operation-not-running' | 'stale-operation';
+
+/**
+ * Stamped the first time `heteroIngest` refuses a batch for this operation.
+ *
+ * Both refusal paths (the op row is no longer `running`, or the topic's
+ * `runningOperation` marker no longer names this op) mean the producer's
+ * remaining output is being discarded while its CLI keeps running happily. The
+ * marker is what carries that fact across to `heteroFinish`, which would
+ * otherwise settle the producer's `success` receipt as a clean turn and leave
+ * the user staring at an assistant placeholder that never fills in.
+ */
+export interface HeteroIngestRejectionMarker {
+  at: string;
+  /** Events discarded with the refusal that stamped this marker. */
+  droppedEvents: number;
+  reason: HeteroIngestRejectionReason;
+}
+
+const sameServerDefaultRelayInvocation = (
+  left: ServerDefaultHeterogeneousRelayInvocation,
+  right: ServerDefaultHeterogeneousRelayInvocation,
+): boolean =>
+  left.agentType === right.agentType &&
+  left.ingress === right.ingress &&
+  left.model === right.model &&
+  left.operationId === right.operationId &&
+  left.provider === right.provider;
+
 /** Terminal usage summed across every child operation of one parent. All-zero when it has none. */
 export interface ChildUsageRollup {
   llmCalls: number;
@@ -55,14 +107,7 @@ export interface ChildUsageRollup {
 
 export interface RecordOperationCompletionParams {
   completedAt?: Date;
-  completionReason?:
-    | 'done'
-    | 'error'
-    | 'interrupted'
-    | 'max_steps'
-    | 'cost_limit'
-    | 'waiting_for_human'
-    | 'waiting_for_async_tool';
+  completionReason?: AgentOperationCompletionReason;
   cost?: Record<string, unknown> | null;
   error?: AgentOperationError | null;
   interruption?: AgentOperationInterruption | null;
@@ -74,8 +119,7 @@ export interface RecordOperationCompletionParams {
   processingTimeMs?: number | null;
   /** Backfill the executed provider — see {@link RecordOperationCompletionParams.model}. */
   provider?: string | null;
-  status:
-    'running' | 'waiting_for_human' | 'waiting_for_async_tool' | 'done' | 'error' | 'interrupted';
+  status: Exclude<AgentOperationStatus, 'idle'>;
   stepCount?: number | null;
   toolCalls?: number | null;
   totalCost?: number | null;
@@ -131,6 +175,31 @@ export class AgentOperationModel {
   }
 
   /**
+   * Newest operation in this topic that is parked waiting for tool approval.
+   *
+   * A parked run is stream-terminal, so the client marks its own operation
+   * completed and prunes it — by the time the user decides to stop, only the
+   * DB still knows which operation is holding the turn. Scoped by `userId` so
+   * one user can never resolve (and then terminate) another's run.
+   */
+  async findLatestParkedOperationId(topicId: string): Promise<string | undefined> {
+    const [row] = await this.db
+      .select({ id: agentOperations.id })
+      .from(agentOperations)
+      .where(
+        and(
+          eq(agentOperations.topicId, topicId),
+          eq(agentOperations.userId, this.userId),
+          eq(agentOperations.status, 'waiting_for_human'),
+        ),
+      )
+      .orderBy(sql`${agentOperations.createdAt} desc`)
+      .limit(1);
+
+    return row?.id;
+  }
+
+  /**
    * Update the row when the operation reaches a terminal state. Scoped by
    * `userId` so a leaked operationId can't be used to flip another user's
    * row. No-op when the start row was never written.
@@ -138,7 +207,7 @@ export class AgentOperationModel {
   async recordCompletion(
     operationId: string,
     params: RecordOperationCompletionParams,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const updates: Partial<NewAgentOperation> = {
       completionReason: params.completionReason,
       status: params.status,
@@ -165,10 +234,221 @@ export class AgentOperationModel {
     if (params.interruption !== undefined) updates.interruption = params.interruption;
     if (params.traceS3Key !== undefined) updates.traceS3Key = params.traceS3Key;
 
-    await this.db
+    const [row] = await this.db
       .update(agentOperations)
       .set(updates)
-      .where(and(eq(agentOperations.id, operationId), this.ownership()));
+      .where(
+        and(
+          eq(agentOperations.id, operationId),
+          or(
+            inArray(agentOperations.status, [
+              'running',
+              'waiting_for_human',
+              'waiting_for_async_tool',
+            ]),
+            eq(agentOperations.status, params.status),
+          ),
+          this.ownership(),
+        ),
+      )
+      .returning({ id: agentOperations.id });
+
+    return Boolean(row);
+  }
+
+  /**
+   * Persist provider enqueue acknowledgement without replacing other runtime
+   * metadata. The provenance request id is checked in SQL so a stale/colliding
+   * operation can never be marked scheduled by another intervention.
+   */
+  async recordAgentInterventionDispatch(
+    operationId: string,
+    marker: AgentInterventionDispatchMarker,
+  ): Promise<boolean> {
+    const [row] = await this.db
+      .update(agentOperations)
+      .set({
+        metadata: sql`coalesce(${agentOperations.metadata}, '{}'::jsonb) || ${JSON.stringify({ agentInterventionDispatch: marker })}::jsonb`,
+      })
+      .where(
+        and(
+          eq(agentOperations.id, operationId),
+          this.ownership(),
+          sql`${agentOperations.metadata}->'agentInterventionContinuation'->>'resolutionRequestId' = ${marker.resolutionRequestId}`,
+        ),
+      )
+      .returning({ id: agentOperations.id });
+    return Boolean(row);
+  }
+
+  /**
+   * Persist the crash-recovery boundary after runtime state and serialized
+   * hooks are complete, but before the first queue publish. A missing runtime
+   * state with this marker is therefore ambiguous (it may already have run)
+   * and must never be rebuilt from scratch.
+   */
+  async recordAgentInterventionPreparation(
+    operationId: string,
+    marker: AgentInterventionPreparationMarker,
+  ): Promise<boolean> {
+    const [row] = await this.db
+      .update(agentOperations)
+      .set({
+        metadata: sql`coalesce(${agentOperations.metadata}, '{}'::jsonb) || ${JSON.stringify({ agentInterventionPreparation: marker })}::jsonb`,
+      })
+      .where(
+        and(
+          eq(agentOperations.id, operationId),
+          this.ownership(),
+          sql`${agentOperations.metadata}->'agentInterventionContinuation'->>'resolutionRequestId' = ${marker.resolutionRequestId}`,
+        ),
+      )
+      .returning({ id: agentOperations.id });
+    return Boolean(row);
+  }
+
+  /**
+   * Record the first official-relay acceptance for a server-default operation.
+   * Matching retries reuse the original timestamp; a conflicting selection or
+   * terminal operation fails closed.
+   */
+  async recordServerDefaultRelayInvocation(
+    operationId: string,
+    invocation: ServerDefaultHeterogeneousRelayInvocation,
+  ): Promise<ServerDefaultHeterogeneousRelayInvocation | null> {
+    if (operationId !== invocation.operationId) return null;
+
+    const [row] = await this.db
+      .update(agentOperations)
+      .set({
+        metadata: sql`coalesce(${agentOperations.metadata}, '{}'::jsonb) || ${JSON.stringify({ serverDefaultRelayInvocation: invocation })}::jsonb`,
+      })
+      .where(
+        and(
+          eq(agentOperations.id, operationId),
+          eq(agentOperations.status, 'running'),
+          eq(agentOperations.model, invocation.model),
+          eq(agentOperations.provider, invocation.provider),
+          this.ownership(),
+          sql`${agentOperations.metadata}->>'serverDefaultHeterogeneous' = 'true'`,
+          sql`${agentOperations.metadata}->>'agentType' = ${invocation.agentType}`,
+          sql`NOT COALESCE(jsonb_exists(${agentOperations.metadata}, 'serverDefaultRelayInvocation'), false)`,
+        ),
+      )
+      .returning({ metadata: agentOperations.metadata });
+
+    if (row) return invocation;
+
+    const existing = (await this.findById(operationId))?.metadata?.serverDefaultRelayInvocation;
+    return isServerDefaultHeterogeneousRelayInvocation(existing) &&
+      sameServerDefaultRelayInvocation(existing, invocation)
+      ? existing
+      : null;
+  }
+
+  /** Idempotently settle a running operation without rewriting an existing terminal outcome. */
+  async settleRunning(
+    operationId: string,
+    status: 'done' | 'error' | 'interrupted',
+  ): Promise<boolean> {
+    const [row] = await this.db
+      .update(agentOperations)
+      .set({
+        completedAt: new Date(),
+        completionReason: status === 'interrupted' ? 'interrupted' : status,
+        status,
+      })
+      .where(
+        and(
+          eq(agentOperations.id, operationId),
+          eq(agentOperations.status, 'running'),
+          this.ownership(),
+        ),
+      )
+      .returning({ id: agentOperations.id });
+    return Boolean(row);
+  }
+
+  /**
+   * Record that ingest discarded a batch for this operation, first refusal wins.
+   *
+   * Deliberately NOT gated on `status = 'running'`: a terminal row is itself one
+   * of the refusal reasons. The `?` guard keeps the first (and most informative)
+   * refusal instead of letting the run's remaining batches overwrite it.
+   */
+  async recordHeteroIngestRejection(
+    operationId: string,
+    marker: HeteroIngestRejectionMarker,
+  ): Promise<boolean> {
+    const [row] = await this.db
+      .update(agentOperations)
+      .set({
+        metadata: sql`coalesce(${agentOperations.metadata}, '{}'::jsonb) || ${JSON.stringify({ heteroIngestRejection: marker })}::jsonb`,
+      })
+      .where(
+        and(
+          eq(agentOperations.id, operationId),
+          this.ownership(),
+          sql`NOT (coalesce(${agentOperations.metadata}, '{}'::jsonb) ? 'heteroIngestRejection')`,
+        ),
+      )
+      .returning({ id: agentOperations.id });
+    return Boolean(row);
+  }
+
+  /** Refresh the durable liveness lease while an operation owns an execution step. */
+  async touchRunning(operationId: string): Promise<boolean> {
+    const [row] = await this.db
+      .update(agentOperations)
+      .set({ updatedAt: new Date() })
+      .where(
+        and(
+          eq(agentOperations.id, operationId),
+          eq(agentOperations.status, 'running'),
+          this.ownership(),
+        ),
+      )
+      .returning({ id: agentOperations.id });
+
+    return Boolean(row);
+  }
+
+  /**
+   * Atomically retire an operation whose liveness lease has expired. A concurrent
+   * heartbeat wins by moving updatedAt past staleBefore, preventing false recovery.
+   */
+  async settleStaleRunning(
+    operationId: string,
+    staleBefore: Date,
+    latestTotalCost?: number,
+  ): Promise<boolean> {
+    const totalCost =
+      latestTotalCost !== undefined && Number.isFinite(latestTotalCost)
+        ? Math.max(0, latestTotalCost)
+        : undefined;
+    const [row] = await this.db
+      .update(agentOperations)
+      .set({
+        completedAt: new Date(),
+        completionReason: 'lease_expired',
+        status: 'abandoned',
+        ...(totalCost === undefined
+          ? {}
+          : {
+              totalCost: sql`greatest(coalesce(${agentOperations.totalCost}, 0), ${totalCost})`,
+            }),
+      })
+      .where(
+        and(
+          eq(agentOperations.id, operationId),
+          eq(agentOperations.status, 'running'),
+          sql`${agentOperations.updatedAt} < ${staleBefore}`,
+          this.ownership(),
+        ),
+      )
+      .returning({ id: agentOperations.id });
+
+    return Boolean(row);
   }
 
   /**
@@ -215,6 +495,14 @@ export class AgentOperationModel {
     };
   }
 
+  /**
+   * Raw ownership-scoped lookup. Agent-share visitor runs execute under the
+   * CREATOR's identity, so this DOES return their operations — required by the
+   * agent runtime (execution, intervention, completion, verify, abandon), which
+   * has to resolve the operation it is currently driving no matter who started
+   * it. Creator-facing read entry points must use
+   * {@link AgentOperationModel.findOwnOperationById} instead.
+   */
   async findById(operationId: string) {
     const [row] = await this.db
       .select()
@@ -222,6 +510,144 @@ export class AgentOperationModel {
       .where(and(eq(agentOperations.id, operationId), this.ownership()))
       .limit(1);
     return row ?? null;
+  }
+
+  /** Batch lookup for callers that would otherwise issue one query per id. */
+  async findByIds(operationIds: string[]) {
+    if (operationIds.length === 0) return [];
+    return this.db
+      .select()
+      .from(agentOperations)
+      .where(and(inArray(agentOperations.id, operationIds), this.ownership()));
+  }
+
+  /**
+   * Creator-facing twin of {@link AgentOperationModel.findById}: excludes
+   * operations recorded inside an agent-share visitor topic, so a creator
+   * handed a raw visitor operation id gets nothing back instead of reading a
+   * visitor conversation's trajectory (e.g. via a pre-signed trace URL).
+   *
+   * Mirrors `TopicModel.findById` / `TopicModel.findOwnTopicById`.
+   */
+  async findOwnOperationById(operationId: string) {
+    const [row] = await this.db
+      .select()
+      .from(agentOperations)
+      .where(
+        and(
+          eq(agentOperations.id, operationId),
+          this.ownership(),
+          notShareVisitorTopicRef(agentOperations.topicId),
+        ),
+      )
+      .limit(1);
+    return row ?? null;
+  }
+
+  /** Match a server-minted turn identity when a diagnostic dispatch receipt was lost. */
+  async findByTopicSourceMessage(topicId: string, sourceMessageId: string) {
+    const [operation] = await this.db
+      .select()
+      .from(agentOperations)
+      .where(
+        and(
+          this.ownership(),
+          eq(agentOperations.topicId, topicId),
+          sql`${agentOperations.appContext}->>'sourceMessageId' = ${sourceMessageId}`,
+        ),
+      )
+      .limit(1);
+    return operation;
+  }
+
+  /**
+   * Operations recorded for one topic, newest first — the lookup that turns a
+   * topic id (what a user actually has on hand) into the operation ids their
+   * traces are keyed by. `traceS3Key` rides along so callers can tell "no
+   * snapshot was recorded" apart from "snapshot exists but the fetch failed".
+   *
+   * Creator-facing only (the trace panel). Agent-share visitor runs execute
+   * under the CREATOR's identity, so their operation rows pass `ownership()`;
+   * without the visitor guard a creator could read a visitor conversation's
+   * full trajectory snapshot from a raw topic id.
+   */
+  async listByTopic(topicId: string, limit = 20) {
+    return this.db
+      .select({
+        agentId: agentOperations.agentId,
+        appContext: agentOperations.appContext,
+        createdAt: agentOperations.createdAt,
+        id: agentOperations.id,
+        model: agentOperations.model,
+        parentOperationId: agentOperations.parentOperationId,
+        provider: agentOperations.provider,
+        startedAt: agentOperations.startedAt,
+        status: agentOperations.status,
+        stepCount: agentOperations.stepCount,
+        totalCost: agentOperations.totalCost,
+        totalTokens: agentOperations.totalTokens,
+        traceS3Key: agentOperations.traceS3Key,
+        trigger: agentOperations.trigger,
+      })
+      .from(agentOperations)
+      .where(
+        and(
+          eq(agentOperations.topicId, topicId),
+          this.ownership(),
+          notShareVisitorTopicRef(agentOperations.topicId),
+        ),
+      )
+      .orderBy(sql`${agentOperations.createdAt} desc`)
+      .limit(limit);
+  }
+
+  /**
+   * Total USD cost of every operation bound to a task — the goal outer loop's
+   * budget meter. Only root (task-bound) operations carry `taskId`, and each
+   * root's `totalCost` scalar already includes its direct children's rollup
+   * (see `persistCompletion`), so this sum covers verify / repair sub-runs
+   * without walking parent chains. Re-derived on every call — exact regardless
+   * of how many times a round settles.
+   */
+  async sumCostByTask(taskId: string): Promise<number> {
+    const [row] = await this.db
+      .select({ totalCost: sql<string | null>`sum(${agentOperations.totalCost})` })
+      .from(agentOperations)
+      .where(and(eq(agentOperations.taskId, taskId), this.ownership()));
+
+    const parsed = Number(row?.totalCost ?? 0);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  /**
+   * Per-operation cost and token totals for a set of runs, keyed by operation.
+   *
+   * Feeds the goal round rail's audit hover: a round's block should be able to
+   * say what it actually spent, and asking per round would be one query per
+   * block. Each root's `totalCost` already rolls up its direct children, so no
+   * parent-chain walk is needed here either.
+   */
+  async findUsageByOperations(
+    operationIds: string[],
+  ): Promise<Map<string, { cost: number; tokens: number }>> {
+    const ids = [...new Set(operationIds.filter(Boolean))];
+    if (ids.length === 0) return new Map();
+
+    const rows = await this.db
+      .select({
+        id: agentOperations.id,
+        totalCost: agentOperations.totalCost,
+        totalTokens: agentOperations.totalTokens,
+      })
+      .from(agentOperations)
+      .where(and(inArray(agentOperations.id, ids), this.ownership()));
+
+    return new Map(
+      rows.map((row) => [
+        row.id,
+        { cost: Number(row.totalCost ?? 0) || 0, tokens: Number(row.totalTokens ?? 0) || 0 },
+      ]),
+    );
   }
 
   /**

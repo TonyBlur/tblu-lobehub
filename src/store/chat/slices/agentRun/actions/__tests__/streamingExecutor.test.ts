@@ -1,7 +1,8 @@
 import type { AgentState } from '@lobechat/agent-runtime';
 import * as agentRuntime from '@lobechat/agent-runtime';
+import { resolveLocalSystemManifest } from '@lobechat/builtin-tool-local-system';
 import type * as LobeChatConst from '@lobechat/const';
-import { type UIChatMessage } from '@lobechat/types';
+import { type LobeChatPluginApi, type UIChatMessage } from '@lobechat/types';
 import { act, renderHook } from '@testing-library/react';
 import { type EnabledAiModel, ModelProvider } from 'model-bank';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,6 +10,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as toolEngineering from '@/helpers/toolEngineering';
 import { chatService } from '@/services/chat';
 import * as agentConfigResolver from '@/services/chat/mecha/agentConfigResolver';
+import { messageService } from '@/services/message';
+import { workService } from '@/services/work';
 import { useAgentStore } from '@/store/agent';
 import { useAiInfraStore } from '@/store/aiInfra';
 import { pageAgentRuntime } from '@/store/tool/slices/builtin/executors/pageAgentRuntime';
@@ -25,7 +28,7 @@ import {
 } from './fixtures';
 import { resetTestEnvironment, setupMockSelectors, spyOnMessageService } from './helpers';
 
-const serverConfigMock = vi.hoisted(() => ({ enableVisualUnderstanding: false }));
+const serverConfigMock = vi.hoisted(() => ({ enableMultimodalUnderstanding: false }));
 const agentSignalBridgeMock = vi.hoisted(() => ({
   emitClientAgentSignalSourceEvent: vi.fn().mockResolvedValue(undefined),
 }));
@@ -93,8 +96,6 @@ const createMockRuntimeState = (operationId: string, status: AgentState['status'
   },
 });
 
-// Keep zustand mock as it's needed globally
-vi.mock('zustand/traditional');
 vi.mock('@/store/chat/slices/agentRun/actions/lifecycle/agentSignalBridge', () => ({
   emitClientAgentSignalSourceEvent: agentSignalBridgeMock.emitClientAgentSignalSourceEvent,
 }));
@@ -103,6 +104,10 @@ vi.mock('@/store/chat/slices/agentRun/actions/lifecycle/agentSignalBridge', () =
 // the notification branch. The service is dynamically imported inside executeClientAgent.
 const desktopFlag = vi.hoisted(() => ({ value: false }));
 const desktopNotificationMock = vi.hoisted(() => ({ showNotification: vi.fn() }));
+const completionSoundMock = vi.hoisted(() => ({
+  getNotificationSoundFile: vi.fn(),
+  play: vi.fn(),
+}));
 vi.mock('@lobechat/const', async (importOriginal) => {
   const actual = await importOriginal<typeof LobeChatConst>();
   return {
@@ -115,13 +120,17 @@ vi.mock('@lobechat/const', async (importOriginal) => {
 vi.mock('@/services/electron/desktopNotification', () => ({
   desktopNotificationService: desktopNotificationMock,
 }));
+vi.mock('@/services/electron/completionSound', () => ({
+  completionSoundService: completionSoundMock,
+}));
 vi.mock('@/store/serverConfig', () => ({
   getServerConfigStoreState: () => ({
-    serverConfig: { enableVisualUnderstanding: serverConfigMock.enableVisualUnderstanding },
+    serverConfig: { enableMultimodalUnderstanding: serverConfigMock.enableMultimodalUnderstanding },
   }),
   serverConfigSelectors: {
-    enableVisualUnderstanding: (state: { serverConfig: { enableVisualUnderstanding?: boolean } }) =>
-      !!state.serverConfig.enableVisualUnderstanding,
+    enableMultimodalUnderstanding: (state: {
+      serverConfig: { enableMultimodalUnderstanding?: boolean };
+    }) => !!state.serverConfig.enableMultimodalUnderstanding,
   },
 }));
 
@@ -150,6 +159,7 @@ const spyOnClientLLMStream = (
     async (params, options) => ({
       options: options ?? {},
       params: { ...params, messages: params.messages as any } as any,
+      replayAssistantReasoning: false,
     }),
   );
 
@@ -187,7 +197,11 @@ beforeEach(() => {
   resetTestEnvironment();
   setupMockSelectors();
   spyOnMessageService();
-  serverConfigMock.enableVisualUnderstanding = false;
+  vi.spyOn(workService, 'listByRootOperation').mockResolvedValue([]);
+  desktopFlag.value = false;
+  completionSoundMock.getNotificationSoundFile.mockReset().mockResolvedValue(undefined);
+  completionSoundMock.play.mockReset().mockResolvedValue(undefined);
+  serverConfigMock.enableMultimodalUnderstanding = false;
 
   act(() => {
     useAgentStore.setState({ availableAgents: [] });
@@ -208,61 +222,106 @@ afterEach(() => {
 });
 
 describe('StreamingExecutor actions', () => {
+  it('keeps the original source message when initializing and resuming a run', () => {
+    const params = {
+      agentId: TEST_IDS.SESSION_ID,
+      messages: [],
+      parentMessageId: TEST_IDS.USER_MESSAGE_ID,
+      topicId: TEST_IDS.TOPIC_ID,
+    };
+    const { state } = useChatStore.getState().internal_createAgentState(params);
+    expect(state.metadata?.sourceMessageId).toBe(TEST_IDS.USER_MESSAGE_ID);
+    const resumed = useChatStore.getState().internal_createAgentState({
+      ...params,
+      initialState: state,
+      parentMessageId: 'intermediate-assistant',
+    });
+    expect(resumed.state.metadata?.sourceMessageId).toBe(TEST_IDS.USER_MESSAGE_ID);
+  });
+
   describe('executeClientAgent', () => {
-    it('should handle the core AI message processing', async () => {
-      act(() => {
-        useChatStore.setState({ executeClientAgent: realExecAgentRuntime });
-      });
-
-      const { result } = renderHook(() => useChatStore());
-      const userMessage = {
-        id: TEST_IDS.USER_MESSAGE_ID,
-        role: 'user',
-        content: TEST_CONTENT.USER_MESSAGE,
-        sessionId: TEST_IDS.SESSION_ID,
-        topicId: TEST_IDS.TOPIC_ID,
-      } as UIChatMessage;
-      const messages = [userMessage];
-      seedDbMessages({ agentId: TEST_IDS.SESSION_ID, topicId: TEST_IDS.TOPIC_ID }, messages);
-
-      const streamSpy = spyOnClientLLMStream(async ({ onFinish }) => {
-        await onFinish?.(TEST_CONTENT.AI_RESPONSE, {} as any);
-      });
-
-      await act(async () => {
-        await result.current.executeClientAgent({
-          context: { agentId: TEST_IDS.SESSION_ID, topicId: TEST_IDS.TOPIC_ID },
-          messages,
-          parentMessageId: userMessage.id,
-          parentMessageType: 'user',
+    it.each([false, true])(
+      'completes the reply and anchors only registered Works (hasWork=%s)',
+      async (hasWork) => {
+        if (hasWork) {
+          vi.mocked(workService.listByRootOperation).mockResolvedValue([
+            { id: 'registered-work' } as Awaited<
+              ReturnType<typeof workService.listByRootOperation>
+            >[number],
+          ]);
+        }
+        act(() => {
+          useChatStore.setState({ executeClientAgent: realExecAgentRuntime });
         });
-      });
 
-      // Verify agent runtime executed successfully
-      expect(streamSpy).toHaveBeenCalled();
-      expect(result.current.refreshMessages).toHaveBeenCalledWith({
-        agentId: TEST_IDS.SESSION_ID,
-        topicId: TEST_IDS.TOPIC_ID,
-      });
+        const { result } = renderHook(() => useChatStore());
+        const userMessage = {
+          id: TEST_IDS.USER_MESSAGE_ID,
+          role: 'user',
+          content: TEST_CONTENT.USER_MESSAGE,
+          sessionId: TEST_IDS.SESSION_ID,
+          topicId: TEST_IDS.TOPIC_ID,
+        } as UIChatMessage;
+        const messages = [userMessage];
+        seedDbMessages({ agentId: TEST_IDS.SESSION_ID, topicId: TEST_IDS.TOPIC_ID }, messages);
 
-      // Verify operation was completed
-      const operations = Object.values(result.current.operations);
-      const execOperation = operations.find((op) => op.type === 'execAgentRuntime');
-      expect(execOperation?.status).toBe('completed');
-      expect(agentSignalBridgeMock.emitClientAgentSignalSourceEvent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          payload: expect.objectContaining({
+        const streamSpy = spyOnClientLLMStream(async ({ onFinish }) => {
+          await onFinish?.(TEST_CONTENT.AI_RESPONSE, {} as any);
+        });
+
+        await act(async () => {
+          await result.current.executeClientAgent({
+            context: { agentId: TEST_IDS.SESSION_ID, topicId: TEST_IDS.TOPIC_ID },
+            messages,
             parentMessageId: userMessage.id,
             parentMessageType: 'user',
-            triggerMessageId: userMessage.id,
-          }),
-          sourceId: `${execOperation?.id}:client:start`,
-          sourceType: 'client.runtime.start',
-        }),
-      );
+          });
+        });
 
-      streamSpy.mockRestore();
-    });
+        // Verify agent runtime executed successfully
+        expect(streamSpy).toHaveBeenCalled();
+        expect(result.current.refreshMessages).toHaveBeenCalledWith({
+          agentId: TEST_IDS.SESSION_ID,
+          topicId: TEST_IDS.TOPIC_ID,
+        });
+
+        // Verify operation was completed
+        const operations = Object.values(result.current.operations);
+        const execOperation = operations.find((op) => op.type === 'execAgentRuntime');
+        expect(execOperation?.status).toBe('completed');
+        expect(workService.listByRootOperation).toHaveBeenCalledWith({
+          limit: 1,
+          rootOperationId: execOperation?.id,
+        });
+        const anchorWrites = vi
+          .mocked(messageService.updateMessageMetadata)
+          .mock.calls.filter(([, metadata]) => metadata.work);
+        expect(anchorWrites).toHaveLength(hasWork ? 1 : 0);
+        if (hasWork) {
+          expect(anchorWrites[0]).toEqual([
+            expect.any(String),
+            { work: { rootOperationId: execOperation?.id, userMessageId: userMessage.id } },
+            { agentId: TEST_IDS.SESSION_ID, topicId: TEST_IDS.TOPIC_ID },
+          ]);
+          expect(
+            vi.mocked(messageService.updateMessageMetadata).mock.invocationCallOrder[0],
+          ).toBeLessThan(vi.mocked(result.current.refreshMessages).mock.invocationCallOrder[0]);
+        }
+        expect(agentSignalBridgeMock.emitClientAgentSignalSourceEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            payload: expect.objectContaining({
+              parentMessageId: userMessage.id,
+              parentMessageType: 'user',
+              triggerMessageId: userMessage.id,
+            }),
+            sourceId: `${execOperation?.id}:client:start`,
+            sourceType: 'client.runtime.start',
+          }),
+        );
+
+        streamSpy.mockRestore();
+      },
+    );
 
     it('writes topics.status=running at run start so off-conversation surfaces see it', async () => {
       act(() => {
@@ -1226,6 +1285,53 @@ describe('StreamingExecutor actions', () => {
       });
     });
 
+    it('should resolve desktop client tool manifests for the local execution environment', () => {
+      desktopFlag.value = true;
+
+      const { result } = renderHook(() => useChatStore());
+      const userMessage = {
+        id: TEST_IDS.USER_MESSAGE_ID,
+        role: 'user',
+        content: TEST_CONTENT.USER_MESSAGE,
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+      } as UIChatMessage;
+      const createToolsEngineSpy = vi
+        .spyOn(toolEngineering, 'createAgentToolsEngine')
+        .mockImplementation((_workingModel, _pluginIds, manifestContext) => {
+          const localSystemManifest = resolveLocalSystemManifest(manifestContext ?? {});
+
+          return {
+            generateToolsDetailed: vi.fn().mockReturnValue({
+              enabledManifests: localSystemManifest ? [localSystemManifest] : [],
+              enabledToolIds: localSystemManifest ? [localSystemManifest.identifier] : [],
+              tools: [],
+            }),
+          } as any;
+        });
+
+      const { state } = result.current.internal_createAgentState({
+        messages: [userMessage],
+        parentMessageId: userMessage.id,
+        agentId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+      });
+
+      expect(createToolsEngineSpy).toHaveBeenCalledWith(
+        expect.any(Object),
+        undefined,
+        expect.objectContaining({ executionEnv: 'local' }),
+      );
+      const readFile = state.toolManifestMap['lobe-local-system']?.api.find(
+        (api: LobeChatPluginApi) => api.name === 'readFile',
+      );
+
+      expect(readFile?.description).toContain('base64');
+      expect(state.toolManifestMap['lobe-local-system']?.systemRole).toContain(
+        'Image files are uploaded as visual tool results',
+      );
+    });
+
     it('should not inject page editor context outside page scope', () => {
       act(() => {
         useChatStore.setState({ executeClientAgent: realExecAgentRuntime });
@@ -1326,26 +1432,26 @@ describe('StreamingExecutor actions', () => {
       );
     });
 
-    it('should enable visual understanding when a previous user message has visual media', () => {
+    it('should enable multimodal understanding when a previous user message has audio', () => {
       act(() => {
         useChatStore.setState({ executeClientAgent: realExecAgentRuntime });
       });
 
-      serverConfigMock.enableVisualUnderstanding = true;
+      serverConfigMock.enableMultimodalUnderstanding = true;
 
       const { result } = renderHook(() => useChatStore());
-      const previousVisualMessage = {
-        id: 'msg_with_image',
+      const previousMediaMessage = {
+        audioList: [{ id: 'audio-file', url: 'https://example.com/audio.mp3' }],
+        id: 'msg_with_audio',
         role: 'user',
-        content: 'Please inspect this image',
-        imageList: [{ id: 'image-file', url: 'https://example.com/image.png' }],
+        content: 'Please inspect this audio',
         sessionId: TEST_IDS.SESSION_ID,
         topicId: TEST_IDS.TOPIC_ID,
       } as UIChatMessage;
       const currentTextMessage = {
         id: TEST_IDS.USER_MESSAGE_ID,
         role: 'user',
-        content: 'Does the person in the first image wear glasses?',
+        content: 'What is said in the audio?',
         sessionId: TEST_IDS.SESSION_ID,
         topicId: TEST_IDS.TOPIC_ID,
       } as UIChatMessage;
@@ -1367,7 +1473,7 @@ describe('StreamingExecutor actions', () => {
       } as any);
 
       result.current.internal_createAgentState({
-        messages: [previousVisualMessage, currentTextMessage],
+        messages: [previousMediaMessage, currentTextMessage],
         parentMessageId: currentTextMessage.id,
         agentId: TEST_IDS.SESSION_ID,
         topicId: TEST_IDS.TOPIC_ID,
@@ -1380,16 +1486,16 @@ describe('StreamingExecutor actions', () => {
       );
     });
 
-    it('should not enable visual understanding when the active LobeHub model supports visual media natively', () => {
+    it('should not enable multimodal understanding when the active LobeHub model supports audio natively', () => {
       act(() => {
         useChatStore.setState({ executeClientAgent: realExecAgentRuntime });
       });
 
-      serverConfigMock.enableVisualUnderstanding = true;
+      serverConfigMock.enableMultimodalUnderstanding = true;
       useAiInfraStore.setState({
         enabledAiModels: [
           {
-            abilities: { functionCall: true, video: true, vision: true },
+            abilities: { audio: true, functionCall: true, video: true, vision: true },
             id: 'gemini-3.1-flash-lite-preview',
             providerId: ModelProvider.Google,
             type: 'chat',
@@ -1398,18 +1504,18 @@ describe('StreamingExecutor actions', () => {
       });
 
       const { result } = renderHook(() => useChatStore());
-      const previousVisualMessage = {
-        id: 'msg_with_video',
+      const previousMediaMessage = {
+        audioList: [{ id: 'audio-file', url: 'https://example.com/audio.mp3' }],
+        id: 'msg_with_audio',
         role: 'user',
-        content: 'Please inspect this video',
+        content: 'Please inspect this audio',
         sessionId: TEST_IDS.SESSION_ID,
         topicId: TEST_IDS.TOPIC_ID,
-        videoList: [{ id: 'video-file', url: 'https://example.com/video.mp4' }],
       } as UIChatMessage;
       const currentTextMessage = {
         id: TEST_IDS.USER_MESSAGE_ID,
         role: 'user',
-        content: 'Summarize the previous video',
+        content: 'Summarize the previous audio',
         sessionId: TEST_IDS.SESSION_ID,
         topicId: TEST_IDS.TOPIC_ID,
       } as UIChatMessage;
@@ -1434,7 +1540,7 @@ describe('StreamingExecutor actions', () => {
       } as any);
 
       result.current.internal_createAgentState({
-        messages: [previousVisualMessage, currentTextMessage],
+        messages: [previousMediaMessage, currentTextMessage],
         parentMessageId: currentTextMessage.id,
         agentId: TEST_IDS.SESSION_ID,
         topicId: TEST_IDS.TOPIC_ID,

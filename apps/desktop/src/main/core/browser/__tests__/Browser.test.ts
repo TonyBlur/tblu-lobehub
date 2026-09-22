@@ -41,7 +41,9 @@ const {
     show: vi.fn(),
     unmaximize: vi.fn(),
     webContents: {
+      ipc: { once: vi.fn() },
       openDevTools: vi.fn(),
+      reloadIgnoringCache: vi.fn(),
       send: vi.fn(),
       session: {
         webRequest: {
@@ -60,11 +62,15 @@ const {
         setBadge: vi.fn(),
         show: vi.fn(),
       },
+      getLocale: vi.fn(() => 'en-US'),
+      getPreferredSystemLanguages: vi.fn(() => ['en-US']),
       getVersion: vi.fn(() => '1.2.3'),
       setActivationPolicy: vi.fn(),
       setBadgeCount: vi.fn(),
     },
-    MockBrowserWindow: vi.fn().mockImplementation(() => mockBrowserWindow),
+    MockBrowserWindow: vi.fn(function () {
+      return mockBrowserWindow;
+    }),
     mockBrowserWindow,
     mockEnv: {
       externalNavigationHosts: '',
@@ -109,16 +115,6 @@ vi.mock('electron', () => ({
   nativeTheme: mockNativeTheme,
   screen: mockScreen,
   shell: mockShell,
-}));
-
-// Mock logger
-vi.mock('@/utils/logger', () => ({
-  createLogger: () => ({
-    debug: vi.fn(),
-    error: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-  }),
 }));
 
 // Mock constants
@@ -234,7 +230,7 @@ describe('Browser', () => {
     } as unknown as AppCore;
 
     browser = new Browser(defaultOptions, mockApp);
-    // The constructor triggers an async placeholder->loadUrl chain; stub it to avoid cross-test flakiness.
+    // The constructor starts the initial renderer navigation asynchronously.
     autoLoadUrlSpy = vi.spyOn(browser, 'loadUrl').mockResolvedValue(undefined as any);
   });
 
@@ -291,6 +287,17 @@ describe('Browser', () => {
     it('should create BrowserWindow on construction', () => {
       expect(MockBrowserWindow).toHaveBeenCalled();
     });
+
+    it('loads the renderer directly without a splash-page navigation', async () => {
+      await vi.waitFor(() => {
+        expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith(
+          'http://localhost:3000/test?lng=en-US',
+        );
+      });
+
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalledTimes(1);
+      expect(mockBrowserWindow.loadFile).not.toHaveBeenCalledWith('/mock/resources/splash.html');
+    });
   });
 
   describe('browserWindow getter', () => {
@@ -321,6 +328,46 @@ describe('Browser', () => {
   });
 
   describe('retrieveOrInitialize', () => {
+    const firstFrameSignals = () => ({
+      loadingScreenPainted: mockBrowserWindow.webContents.ipc.once.mock.calls.findLast(
+        ([channel]: [string]) => channel === 'desktop:loading-screen-painted',
+      )?.[1],
+      readyToShow: mockBrowserWindow.once.mock.calls.findLast(
+        ([event]: [string]) => event === 'ready-to-show',
+      )?.[1],
+    });
+
+    it('should show the window once the preload reports the loading screen painted', () => {
+      new Browser({ ...defaultOptions, showOnInit: true }, mockApp);
+      expect(mockBrowserWindow.show).not.toHaveBeenCalled();
+
+      const { loadingScreenPainted, readyToShow } = firstFrameSignals();
+      loadingScreenPainted();
+      expect(mockBrowserWindow.show).toHaveBeenCalledTimes(1);
+
+      readyToShow();
+      expect(mockBrowserWindow.show).toHaveBeenCalledTimes(1);
+    });
+
+    it('should fall back to ready-to-show when the paint report never arrives', () => {
+      new Browser({ ...defaultOptions, showOnInit: true }, mockApp);
+
+      const { loadingScreenPainted, readyToShow } = firstFrameSignals();
+      readyToShow();
+      expect(mockBrowserWindow.show).toHaveBeenCalledTimes(1);
+
+      loadingScreenPainted();
+      expect(mockBrowserWindow.show).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not show the window when showOnInit is unset', () => {
+      const { loadingScreenPainted, readyToShow } = firstFrameSignals();
+      loadingScreenPainted();
+      readyToShow();
+
+      expect(mockBrowserWindow.show).not.toHaveBeenCalled();
+    });
+
     it('should restore window size from store', () => {
       mockStoreManagerGet.mockImplementation((key: string) => {
         if (key === 'windowSize_test-window') {
@@ -336,6 +383,32 @@ describe('Browser', () => {
         expect.objectContaining({
           height: 700,
           width: 900,
+        }),
+      );
+    });
+
+    it('should prefer the requested initial size when state restoration is disabled', () => {
+      mockStoreManagerGet.mockImplementation((key: string) => {
+        if (key === 'windowSize_test-window') {
+          return { height: 700, width: 900 };
+        }
+        return undefined;
+      });
+
+      new Browser(
+        {
+          ...defaultOptions,
+          height: 954,
+          restoreWindowState: false,
+          width: 1432,
+        },
+        mockApp,
+      );
+
+      expect(MockBrowserWindow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          height: 954,
+          width: 1432,
         }),
       );
     });
@@ -504,7 +577,51 @@ describe('Browser', () => {
       autoLoadUrlSpy?.mockRestore();
       await browser.loadUrl('/test-path');
 
-      expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith('http://localhost:3000/test-path');
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith(
+        'http://localhost:3000/test-path?lng=en-US',
+      );
+    });
+
+    it('injects the OS language when the stored locale is auto', async () => {
+      autoLoadUrlSpy?.mockRestore();
+      mockStoreManagerGet.mockImplementation((key: string) =>
+        key === 'locale' ? 'auto' : undefined,
+      );
+      mockAppModule.getPreferredSystemLanguages.mockReturnValue(['zh-Hans-CN']);
+
+      await browser.loadUrl('/test-path');
+
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith(
+        'http://localhost:3000/test-path?lng=zh-CN',
+      );
+    });
+
+    it('injects an explicit locale choice ahead of the OS language', async () => {
+      autoLoadUrlSpy?.mockRestore();
+      mockStoreManagerGet.mockImplementation((key: string) =>
+        key === 'locale' ? 'ja-JP' : undefined,
+      );
+      mockAppModule.getPreferredSystemLanguages.mockReturnValue(['zh-Hans-CN']);
+
+      await browser.loadUrl('/test-path');
+
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith(
+        'http://localhost:3000/test-path?lng=ja-JP',
+      );
+    });
+
+    it('appends lng to a URL that already carries a query string', async () => {
+      autoLoadUrlSpy?.mockRestore();
+      mockAppModule.getPreferredSystemLanguages.mockReturnValue(['en-US']);
+      (mockApp.buildRendererUrl as any).mockResolvedValueOnce(
+        'http://localhost:3000/test-path?foo=1',
+      );
+
+      await browser.loadUrl('/test-path');
+
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith(
+        'http://localhost:3000/test-path?foo=1&lng=en-US',
+      );
     });
 
     it('should load error page on failure', async () => {
@@ -825,6 +942,20 @@ describe('Browser', () => {
       willPreventUnloadHandler(mockEvent);
 
       expect(mockEvent.preventDefault).not.toHaveBeenCalled();
+    });
+
+    it('should bypass beforeunload once for a renderer OTA reload', () => {
+      const reloadEvent = { preventDefault: vi.fn() };
+      const laterEvent = { preventDefault: vi.fn() };
+      mockBrowserWindow.webContents.reloadIgnoringCache.mockImplementationOnce(() => {
+        willPreventUnloadHandler(reloadEvent);
+      });
+
+      browser.reloadIgnoringCache(true);
+      willPreventUnloadHandler(laterEvent);
+
+      expect(reloadEvent.preventDefault).toHaveBeenCalledOnce();
+      expect(laterEvent.preventDefault).not.toHaveBeenCalled();
     });
   });
 

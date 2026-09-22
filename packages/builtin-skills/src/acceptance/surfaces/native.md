@@ -6,18 +6,19 @@ verify against (Slack/WeChat/…), Finder/system UI, or any OS-level behavior. Y
 drive it with macOS Computer Use (osascript + screencapture) — the toolkit is in
 [../references/computer-use.md](../references/computer-use.md).
 
-Prefer the other surfaces when they can reach the target: [web.md](./web.md) /
-[electron.md](./electron.md) for Chromium UIs, [cli.md](./cli.md) for backend.
-Native is the **local-macOS escape hatch** — it is not cloud-portable (needs a real
-display + Accessibility permission), so reach for it only when CDP can't.
+Return to the router when Chromium automation or command output can reach the
+target. Native is the **local-macOS escape hatch** — it is not cloud-portable
+(needs a real display + Accessibility permission), so reach for it only when CDP
+cannot.
 
 ## How to verify
 
 1. Activate the app and navigate to the state under test (keystrokes / shortcuts /
    clicks — see the toolkit).
 2. Drive the action that exercises your change.
-3. Capture proof: a `screencapture` PNG, a screen recording for time-based behavior
-   ([../references/recording.md](../references/recording.md#path-2--os-screen-recording-macos-local-only)),
+3. Capture proof: a `screencapture` PNG, a screen recording for time-based
+   behavior
+   ([../references/recording-native-macos.md](../references/recording-native-macos.md)),
    or screen text via select-all-copy + `pbpaste`.
 
 ```bash
@@ -33,7 +34,7 @@ Upload as evidence (provenance `cli`, since osascript/screencapture are
 shell-driven):
 
 ```bash
-lh acceptance run result submit --operation "$LOBE_OPERATION_ID" --item "$CHECK_ITEM_ID" --type screenshot \
+lh acceptance run result submit --operation "$OPERATION_ID" --item "$CHECK_ITEM_ID" --type screenshot \
   --file ./proof/native-result.png --by cli \
   --desc "Native app shows the expected state after the change"
 ```

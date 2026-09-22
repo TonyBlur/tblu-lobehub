@@ -1,11 +1,10 @@
 'use client';
 
 import { OFFICIAL_URL } from '@lobechat/const';
-import type { CollapseProps } from '@lobehub/ui';
-import { Center, Collapse, Flexbox, Icon, Input, Text, TextArea, Tooltip } from '@lobehub/ui';
-import { Button, useModalContext } from '@lobehub/ui/base-ui';
+import { Center, Flexbox, Icon, Input, TextArea, Tooltip } from '@lobehub/ui';
+import { Accordion, Button, Text, toast, useModalContext } from '@lobehub/ui/base-ui';
 import type { UploadProps } from 'antd';
-import { App, Form, Input as AntInput, Upload } from 'antd';
+import { Form, Input as AntInput, Upload } from 'antd';
 import { cssVar } from 'antd-style';
 import { CircleHelp, Globe, ImagePlus, Loader2, Trash2 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
@@ -60,7 +59,7 @@ type NamespaceAvailability = 'available' | 'checking' | 'idle' | 'taken';
 
 export const Content = memo<ContentProps>(({ user, onSuccess }) => {
   const { t } = useTranslation('discover');
-  const { message } = App.useApp();
+
   const { close } = useModalContext();
   const [form] = Form.useForm<FormValues>();
   const uploadWithProgress = useFileStore((s) => s.uploadWithProgress);
@@ -119,7 +118,7 @@ export const Content = memo<ContentProps>(({ user, onSuccess }) => {
   const handleAvatarUpload = useCallback(
     async (file: File) => {
       if (file.size > MAX_FILE_SIZE) {
-        message.error(t('user.workspaceProfile.errors.fileTooLarge'));
+        toast.error(t('user.workspaceProfile.errors.fileTooLarge'));
         return;
       }
 
@@ -127,7 +126,7 @@ export const Content = memo<ContentProps>(({ user, onSuccess }) => {
       try {
         const result = await uploadWithProgress({ file });
         if (!result?.url) {
-          message.error(t('user.workspaceProfile.errors.uploadFailed'));
+          toast.error(t('user.workspaceProfile.errors.uploadFailed'));
           return;
         }
         setAvatarUrl(
@@ -135,12 +134,12 @@ export const Content = memo<ContentProps>(({ user, onSuccess }) => {
         );
       } catch (error) {
         console.error('[WorkspaceProfileModal] Avatar upload failed:', error);
-        message.error(t('user.workspaceProfile.errors.uploadFailed'));
+        toast.error(t('user.workspaceProfile.errors.uploadFailed'));
       } finally {
         setAvatarUploading(false);
       }
     },
-    [message, t, uploadWithProgress],
+    [t, uploadWithProgress],
   );
 
   const handleBannerUpload: UploadProps['customRequest'] = useCallback(
@@ -148,7 +147,7 @@ export const Content = memo<ContentProps>(({ user, onSuccess }) => {
       const file = options.file as File;
 
       if (file.size > MAX_FILE_SIZE) {
-        message.error(t('user.workspaceProfile.errors.fileTooLarge'));
+        toast.error(t('user.workspaceProfile.errors.fileTooLarge'));
         options.onError?.(new Error('File too large'));
         return;
       }
@@ -157,7 +156,7 @@ export const Content = memo<ContentProps>(({ user, onSuccess }) => {
       try {
         const result = await uploadWithProgress({ file });
         if (!result?.url) {
-          message.error(t('user.workspaceProfile.errors.uploadFailed'));
+          toast.error(t('user.workspaceProfile.errors.uploadFailed'));
           options.onError?.(new Error('Upload failed'));
           return;
         }
@@ -168,13 +167,13 @@ export const Content = memo<ContentProps>(({ user, onSuccess }) => {
         options.onSuccess?.(result);
       } catch (error) {
         console.error('[WorkspaceProfileModal] Banner upload failed:', error);
-        message.error(t('user.workspaceProfile.errors.uploadFailed'));
+        toast.error(t('user.workspaceProfile.errors.uploadFailed'));
         options.onError?.(error as Error);
       } finally {
         setBannerUploading(false);
       }
     },
-    [message, t, uploadWithProgress],
+    [t, uploadWithProgress],
   );
 
   const handleSave = useCallback(async () => {
@@ -183,7 +182,7 @@ export const Content = memo<ContentProps>(({ user, onSuccess }) => {
     const values = await form.validateFields();
 
     if (isSetup && namespaceAvailability === 'taken') {
-      message.error(t('user.workspaceProfile.fields.namespace.taken'));
+      toast.error(t('user.workspaceProfile.fields.namespace.taken'));
       return;
     }
 
@@ -206,7 +205,7 @@ export const Content = memo<ContentProps>(({ user, onSuccess }) => {
         await updateCommunityWorkspaceProfile(profile);
       }
 
-      message.success(
+      toast.success(
         t(isSetup ? 'user.workspaceProfile.setup.success' : 'user.workspaceProfile.success'),
       );
       await onSuccess?.();
@@ -217,140 +216,123 @@ export const Content = memo<ContentProps>(({ user, onSuccess }) => {
       // live check and submit) as a taken-handle message instead of a generic one.
       if (isSetup && isCommunityWorkspaceNamespaceTakenError(error)) {
         setNamespaceAvailability('taken');
-        message.error(t('user.workspaceProfile.fields.namespace.taken'));
+        toast.error(t('user.workspaceProfile.fields.namespace.taken'));
       } else {
-        message.error(
+        toast.error(
           t(isSetup ? 'user.workspaceProfile.setup.failed' : 'user.workspaceProfile.failed'),
         );
       }
     } finally {
       setLoading(false);
     }
-  }, [
-    avatarUrl,
-    bannerUrl,
-    close,
-    form,
-    isSetup,
-    loading,
-    message,
-    namespaceAvailability,
-    onSuccess,
-    t,
-  ]);
+  }, [avatarUrl, bannerUrl, close, form, isSetup, loading, namespaceAvailability, onSuccess, t]);
 
-  const optionalItems = useMemo<CollapseProps['items']>(
-    () => [
-      {
-        children: (
-          <>
-            <Form.Item
-              label={t('user.workspaceProfile.fields.websiteUrl')}
-              name="websiteUrl"
-              rules={[{ message: t('user.workspaceProfile.errors.url'), type: 'url' }]}
-            >
-              <Input
-                placeholder={t('user.workspaceProfile.fields.websiteUrl.placeholder')}
-                prefix={
-                  <Icon color={cssVar.colorTextSecondary} icon={Globe} style={{ marginRight: 8 }} />
-                }
-              />
-            </Form.Item>
+  const optionalContent = useMemo(
+    () => (
+      <>
+        <Form.Item
+          label={t('user.workspaceProfile.fields.websiteUrl')}
+          name="websiteUrl"
+          rules={[{ message: t('user.workspaceProfile.errors.url'), type: 'url' }]}
+        >
+          <Input
+            placeholder={t('user.workspaceProfile.fields.websiteUrl.placeholder')}
+            prefix={
+              <Icon color={cssVar.colorTextSecondary} icon={Globe} style={{ marginRight: 8 }} />
+            }
+          />
+        </Form.Item>
 
-            <Form.Item
-              label={
-                <Flexbox horizontal align="center" gap={4}>
-                  {t('user.workspaceProfile.fields.bannerUrl')}
-                  <Tooltip title={t('user.workspaceProfile.fields.bannerUrl.tooltip')}>
-                    <CircleHelp size={14} style={{ cursor: 'help', opacity: 0.5 }} />
-                  </Tooltip>
-                </Flexbox>
-              }
+        <Form.Item
+          label={
+            <Flexbox horizontal align="center" gap={4}>
+              {t('user.workspaceProfile.fields.bannerUrl')}
+              <Tooltip title={t('user.workspaceProfile.fields.bannerUrl.tooltip')}>
+                <CircleHelp size={14} style={{ cursor: 'help', opacity: 0.5 }} />
+              </Tooltip>
+            </Flexbox>
+          }
+        >
+          <Flexbox gap={8} width="100%">
+            <Upload
+              accept="image/*"
+              customRequest={handleBannerUpload}
+              maxCount={1}
+              showUploadList={false}
+              style={{ display: 'block', width: '100%' }}
             >
-              <Flexbox gap={8} width="100%">
-                <Upload
-                  accept="image/*"
-                  customRequest={handleBannerUpload}
-                  maxCount={1}
-                  showUploadList={false}
-                  style={{ display: 'block', width: '100%' }}
+              <div
+                style={{
+                  backgroundColor: bannerUrl ? undefined : cssVar.colorFillTertiary,
+                  backgroundImage: bannerUrl ? `url(${bannerUrl})` : undefined,
+                  backgroundPosition: 'center',
+                  backgroundSize: 'cover',
+                  borderRadius: cssVar.borderRadiusLG,
+                  cursor: 'pointer',
+                  height: 160,
+                  overflow: 'hidden',
+                  position: 'relative',
+                  width: '100%',
+                }}
+              >
+                <Center
+                  style={{
+                    background: bannerUrl ? 'rgba(0,0,0,0.4)' : 'transparent',
+                    height: '100%',
+                    opacity: bannerUrl ? 0 : 1,
+                    transition: 'opacity 0.2s',
+                    width: '100%',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.opacity = '1';
+                  }}
+                  onMouseLeave={(e) => {
+                    if (bannerUrl) e.currentTarget.style.opacity = '0';
+                  }}
                 >
-                  <div
-                    style={{
-                      backgroundColor: bannerUrl ? undefined : cssVar.colorFillTertiary,
-                      backgroundImage: bannerUrl ? `url(${bannerUrl})` : undefined,
-                      backgroundPosition: 'center',
-                      backgroundSize: 'cover',
-                      borderRadius: cssVar.borderRadiusLG,
-                      cursor: 'pointer',
-                      height: 160,
-                      overflow: 'hidden',
-                      position: 'relative',
-                      width: '100%',
-                    }}
-                  >
-                    <Center
-                      style={{
-                        background: bannerUrl ? 'rgba(0,0,0,0.4)' : 'transparent',
-                        height: '100%',
-                        opacity: bannerUrl ? 0 : 1,
-                        transition: 'opacity 0.2s',
-                        width: '100%',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.opacity = '1';
-                      }}
-                      onMouseLeave={(e) => {
-                        if (bannerUrl) e.currentTarget.style.opacity = '0';
-                      }}
-                    >
-                      <Flexbox align="center" gap={8}>
-                        <ImagePlus
-                          size={24}
-                          style={{ color: bannerUrl ? '#fff' : cssVar.colorTextSecondary }}
-                        />
-                        <Text
-                          style={{
-                            color: bannerUrl ? '#fff' : cssVar.colorTextSecondary,
-                            fontSize: 12,
-                          }}
-                        >
-                          {bannerUploading
-                            ? t('user.workspaceProfile.fields.bannerUrl.uploading')
-                            : t('user.workspaceProfile.fields.bannerUrl.clickToUpload')}
-                        </Text>
-                      </Flexbox>
-                    </Center>
-                  </div>
-                </Upload>
-                {bannerUrl && (
-                  <Flexbox horizontal align="center" gap={8} justify="flex-end">
+                  <Flexbox align="center" gap={8}>
+                    <ImagePlus
+                      size={24}
+                      style={{ color: bannerUrl ? '#fff' : cssVar.colorTextSecondary }}
+                    />
                     <Text
                       style={{
-                        color: cssVar.colorError,
-                        cursor: 'pointer',
+                        color: bannerUrl ? '#fff' : cssVar.colorTextSecondary,
                         fontSize: 12,
                       }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setBannerUrl(null);
-                      }}
                     >
-                      <Flexbox horizontal align="center" gap={4}>
-                        <Trash2 size={12} />
-                        {t('user.workspaceProfile.fields.bannerUrl.remove')}
-                      </Flexbox>
+                      {bannerUploading
+                        ? t('user.workspaceProfile.fields.bannerUrl.uploading')
+                        : t('user.workspaceProfile.fields.bannerUrl.clickToUpload')}
                     </Text>
                   </Flexbox>
-                )}
+                </Center>
+              </div>
+            </Upload>
+            {bannerUrl && (
+              <Flexbox horizontal align="center" gap={8} justify="flex-end">
+                <Text
+                  style={{
+                    color: cssVar.colorError,
+                    cursor: 'pointer',
+                    fontSize: 12,
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setBannerUrl(null);
+                  }}
+                >
+                  <Flexbox horizontal align="center" gap={4}>
+                    <Trash2 size={12} />
+                    {t('user.workspaceProfile.fields.bannerUrl.remove')}
+                  </Flexbox>
+                </Text>
               </Flexbox>
-            </Form.Item>
-          </>
-        ),
-        key: 'optional',
-        label: t('user.workspaceProfile.optional.toggle'),
-      },
-    ],
+            )}
+          </Flexbox>
+        </Form.Item>
+      </>
+    ),
     [bannerUploading, bannerUrl, handleBannerUpload, t],
   );
 
@@ -434,16 +416,19 @@ export const Content = memo<ContentProps>(({ user, onSuccess }) => {
           />
         </Form.Item>
 
-        <Collapse
-          defaultActiveKey={isSetup ? undefined : ['optional']}
-          expandIconPlacement="end"
-          items={optionalItems}
-          size="small"
+        <Accordion
+          keepMounted
+          defaultValue={isSetup ? [] : ['optional']}
+          indicatorPlacement="end"
+          styles={{ trigger: { paddingInline: 0 } }}
           variant="borderless"
-          styles={{
-            header: { cursor: 'pointer', width: '100%' },
-            title: { cursor: 'pointer', width: '100%' },
-          }}
+          items={[
+            {
+              children: optionalContent,
+              key: 'optional',
+              title: t('user.workspaceProfile.optional.toggle'),
+            },
+          ]}
         />
       </Form>
 

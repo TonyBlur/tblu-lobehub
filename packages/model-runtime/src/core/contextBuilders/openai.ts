@@ -27,24 +27,104 @@ type ConvertMessageContentOptions = {
   model?: string;
   provider?: string;
   reasoningSignatureScope?: SignatureScope;
+  supportsAudioInput?: boolean;
   strictToolPairing?: boolean;
   thoughtSignatureScope?: SignatureScope;
 };
 
-const isDeepSeekModel = (model: string | undefined) =>
-  typeof model === 'string' && model.toLowerCase().includes('deepseek');
+/**
+ * Model families whose thinking mode requires the historical `reasoning_content`
+ * to be echoed back when the assistant turn also carries `tool_calls`. Upstream
+ * rejects the request outright otherwise:
+ *
+ * > If thinking mode and tool_calls, `reasoning_content` must be passed back to the API.
+ *
+ * Matched on the model id rather than the provider because these models are
+ * mostly reached through OpenAI-compatible aggregators and user-configured
+ * proxies, where the provider key says nothing about the underlying family.
+ */
+const REASONING_PASSBACK_MODEL_KEYWORDS = ['deepseek', 'glm', 'kimi'] as const;
+
+const requiresReasoningPassback = (model: string | undefined) =>
+  typeof model === 'string' &&
+  REASONING_PASSBACK_MODEL_KEYWORDS.some((keyword) => model.toLowerCase().includes(keyword));
 
 type OpenAICompatibleContentPart =
   ExtendedChatCompletionContentPart | OpenAI.ChatCompletionContentPart | UserMessageContentPart;
+
+type ConvertibleMessageContentPart =
+  | ExtendedChatCompletionContentPart
+  | OpenAI.ChatCompletionContentPart
+  | Extract<UserMessageContentPart, { type: 'audio_url' }>;
+
+const OPENAI_AUDIO_INPUT_MAX_BYTES = 20 * 1024 * 1024;
+
+const detectOpenAIAudioFormat = (base64: string): 'mp3' | 'wav' | undefined => {
+  const header = Buffer.from(base64.replaceAll(/\s/g, '').slice(0, 64), 'base64');
+
+  if (
+    header.length >= 12 &&
+    header.toString('ascii', 0, 4) === 'RIFF' &&
+    header.toString('ascii', 8, 12) === 'WAVE'
+  ) {
+    return 'wav';
+  }
+
+  if (header.length >= 3 && header.toString('ascii', 0, 3) === 'ID3') return 'mp3';
+
+  const hasMpegFrameSync = header.length >= 2 && header[0] === 0xff && (header[1] & 0xe0) === 0xe0;
+  const hasMpegAudioLayer = header.length >= 2 && ((header[1] >> 1) & 0x03) !== 0;
+  if (hasMpegFrameSync && hasMpegAudioLayer) return 'mp3';
+
+  return undefined;
+};
+
+const convertAudioContent = async (
+  content: Extract<UserMessageContentPart, { type: 'audio_url' }>,
+  options?: ConvertMessageContentOptions,
+): Promise<OpenAI.ChatCompletionContentPartInputAudio> => {
+  if (!options?.supportsAudioInput) {
+    throw new TypeError('Audio input is not supported by this provider runtime');
+  }
+
+  const { base64, type } = parseDataUri(content.audio_url.url);
+
+  if (type === 'base64') {
+    const format = base64 ? detectOpenAIAudioFormat(base64) : undefined;
+    if (!base64 || !format) {
+      throw new TypeError('OpenAI audio input only supports base64 WAV or MP3 data');
+    }
+
+    return { input_audio: { data: base64, format }, type: 'input_audio' };
+  }
+
+  if (type === 'url') {
+    // imageUrlToBase64 is a generic binary downloader with SSRF-safe server fetching and
+    // magic-byte MIME detection. The OpenAI adapter narrows the result to WAV/MP3 below.
+    const converted = await imageUrlToBase64(content.audio_url.url, {
+      maxBytes: OPENAI_AUDIO_INPUT_MAX_BYTES,
+    });
+    const format = detectOpenAIAudioFormat(converted.base64);
+    if (!format) {
+      throw new TypeError('OpenAI audio input only supports WAV or MP3 files');
+    }
+
+    return { input_audio: { data: converted.base64, format }, type: 'input_audio' };
+  }
+
+  throw new TypeError(`Invalid audio URL: ${content.audio_url.url}`);
+};
 
 const isInternalThinkingContentPart = (
   content: OpenAICompatibleContentPart,
 ): content is Extract<UserMessageContentPart, { type: 'thinking' }> => content.type === 'thinking';
 
 export const convertMessageContent = async (
-  content: OpenAI.ChatCompletionContentPart | ExtendedChatCompletionContentPart,
+  content: ConvertibleMessageContentPart,
   options?: ConvertMessageContentOptions,
 ): Promise<OpenAI.ChatCompletionContentPart | ExtendedChatCompletionContentPart> => {
+  if (content.type === 'audio_url') return convertAudioContent(content, options);
+
   if (content.type === 'image_url') {
     const { type } = parseDataUri(content.image_url.url);
 
@@ -156,12 +236,10 @@ export const convertOpenAIMessages = async (
           typeof message.content === 'string'
             ? message.content
             : await Promise.all(
-              (message.content || [])
-                .filter((c) => !isInternalThinkingContentPart(c as OpenAICompatibleContentPart))
-                .map((c) =>
-                  convertMessageContent(c as OpenAI.ChatCompletionContentPart, options),
-                ),
-            ),
+                (message.content || [])
+                  .filter((c) => !isInternalThinkingContentPart(c as OpenAICompatibleContentPart))
+                  .map((c) => convertMessageContent(c as ConvertibleMessageContentPart, options)),
+              ),
         role: msg.role,
       };
 
@@ -189,15 +267,17 @@ export const convertOpenAIMessages = async (
       // MiniMax uses reasoning_details for historical thinking, so forward it unchanged
       if (msg.reasoning_details !== undefined) result.reasoning_details = msg.reasoning_details;
 
-      // For DeepSeek-family models routed via any OpenAI-compatible runtime
-      // (including custom user providers that bypass the dedicated DeepSeek
-      // handlePayload), derive reasoning_content from the structured reasoning
-      // field on assistant messages and force a placeholder when the model is
-      // thinking-mode eligible.
-      if (msg.role === 'assistant' && isDeepSeekModel(options?.model)) {
+      // For passback-requiring families routed via any OpenAI-compatible runtime
+      // (including custom user providers that bypass a dedicated handlePayload),
+      // derive reasoning_content from the structured reasoning field on assistant
+      // messages.
+      if (msg.role === 'assistant' && requiresReasoningPassback(options?.model)) {
         if (result.reasoning_content === undefined && typeof msg.reasoning?.content === 'string') {
           result.reasoning_content = msg.reasoning.content;
         }
+        // The empty placeholder stays DeepSeek-scoped. Echoing reasoning we
+        // actually have is what upstream asks for; fabricating an empty thinking
+        // block for a family we have not validated is a different, riskier change.
         if (
           result.reasoning_content === undefined &&
           isDeepSeekThinkingEligibleModel(options?.model)
@@ -398,49 +478,52 @@ export const convertOpenAIResponseInputs = async (
         typeof message.content === 'string'
           ? message.content
           : await Promise.all(
-            (message.content || []).map(async (c) => {
-              if (isInternalThinkingContentPart(c as OpenAICompatibleContentPart)) {
-                return undefined;
-              }
-
-              if (c.type === 'text') {
-                // if assistant message, set type to output_text
-                // https://platform.openai.com/docs/guides/text
-                if (message.role === 'assistant') {
-                  return { ...c, type: 'output_text' };
+              (message.content || []).map(async (c) => {
+                if (isInternalThinkingContentPart(c as OpenAICompatibleContentPart)) {
+                  return undefined;
                 }
-                return { ...c, type: 'input_text' };
-              }
 
-              // Responses API only accepts output_text/refusal inside assistant history.
-              // Multimodal parts are valid as model inputs, not as previous assistant outputs.
-              if (message.role === 'assistant') {
-                return undefined;
-              }
+                if (c.type === 'text') {
+                  // if assistant message, set type to output_text
+                  // https://platform.openai.com/docs/guides/text
+                  if (message.role === 'assistant') {
+                    return { ...c, type: 'output_text' };
+                  }
+                  return { ...c, type: 'input_text' };
+                }
 
-              if (c.type === 'video_url') {
-                const video = await convertMessageContent(c, options);
-                if (!('video_url' in video) || !video.video_url?.url) {
+                // Responses API only accepts output_text/refusal inside assistant history.
+                // Multimodal parts are valid as model inputs, not as previous assistant outputs.
+                if (message.role === 'assistant') {
+                  return undefined;
+                }
+
+                if (c.type === 'video_url') {
+                  const video = await convertMessageContent(c, options);
+                  if (!('video_url' in video) || !video.video_url?.url) {
+                    return undefined;
+                  }
+                  return {
+                    video_url: video.video_url.url,
+                    type: 'input_video',
+                  };
+                }
+                if (c.type === 'audio_url') {
+                  throw new TypeError('OpenAI raw audio input requires the Chat Completions API');
+                }
+                const image = await convertMessageContent(
+                  c as OpenAI.ChatCompletionContentPart,
+                  options,
+                );
+                if (!(image as OpenAI.ChatCompletionContentPartImage).image_url?.url) {
                   return undefined;
                 }
                 return {
-                  video_url: video.video_url.url,
-                  type: 'input_video',
+                  image_url: (image as OpenAI.ChatCompletionContentPartImage).image_url?.url,
+                  type: 'input_image',
                 };
-              }
-              const image = await convertMessageContent(
-                c as OpenAI.ChatCompletionContentPart,
-                options,
-              );
-              if (!(image as OpenAI.ChatCompletionContentPartImage).image_url?.url) {
-                return undefined;
-              }
-              return {
-                image_url: (image as OpenAI.ChatCompletionContentPartImage).image_url?.url,
-                type: 'input_image',
-              };
-            }),
-          );
+              }),
+            );
 
       const content =
         typeof processedContent === 'string'

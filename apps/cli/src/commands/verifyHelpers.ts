@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import type {
@@ -10,19 +10,25 @@ import type {
 } from '@lobechat/const/verify';
 import {
   acceptanceSubjectTypes,
+  GOMS_KLM_TRACE_FILE,
+  isProgrammaticTestCheck,
   normalizeVerifySurface,
+  PROGRAMMATIC_TEST_CHECK_HINT,
   verifyEvidenceTypes,
   verifyRunScenarios,
   verifySurfaces,
 } from '@lobechat/const/verify';
 import type {
   VerifyCheckResultMetadata,
+  VerifyInteractionCost,
   VerifyVisualizationDataset,
   VerifyVisualizationField,
   VerifyVisualizationManifest,
   VerifyVisualizationValue,
   VerifyVisualizationView,
 } from '@lobechat/types';
+import { verifyCheckDefinitionSchema } from '@lobechat/types';
+import { parseKlmTrace, summarizeKlmTrace } from '@lobechat/utils/verify/interactionCost';
 import pc from 'picocolors';
 
 import { printTable, truncate } from '../utils/format';
@@ -61,7 +67,7 @@ export function assertEnum<T extends string>(
 
 export type Verdict = 'failed' | 'passed' | 'uncertain';
 export type EvidenceType =
-  'dom_snapshot' | 'gif' | 'markdown' | 'screenshot' | 'text' | 'transcript' | 'video';
+  'audio' | 'dom_snapshot' | 'gif' | 'markdown' | 'screenshot' | 'text' | 'transcript' | 'video';
 
 export const INLINE_TEXT_EVIDENCE_LIMIT = 5000;
 export const INLINE_TEXT_EVIDENCE_TYPES = new Set<EvidenceType>([
@@ -85,7 +91,12 @@ export function toVerdict(raw: unknown): Verdict {
  * render as a permanent "?" in every list surface.
  */
 export function deriveReportVerdict(cases: unknown[]): Verdict | undefined {
-  const verdicts = cases.map((c) => toVerdict((c as any)?.result ?? (c as any)?.verdict));
+  // Same field fallback as the per-case ingest (`result ?? status ?? verdict`) —
+  // the documented case field is `status`, so dropping it here derived
+  // `uncertain` for an all-pass report whenever this fallback actually ran.
+  const verdicts = cases.map((c) =>
+    toVerdict((c as any)?.result ?? (c as any)?.status ?? (c as any)?.verdict),
+  );
   if (verdicts.length === 0) return undefined;
   if (verdicts.includes('failed')) return 'failed';
   if (verdicts.includes('uncertain')) return 'uncertain';
@@ -98,6 +109,12 @@ export function evidenceTypeForFile(file: string): EvidenceType {
   if (ext === 'gif') return 'gif';
   if (['png', 'jpg', 'jpeg', 'webp', 'svg', 'bmp'].includes(ext)) return 'screenshot';
   if (['mp4', 'webm', 'mov', 'm4v'].includes(ext)) return 'video';
+  // Audio before the text fallback: an unrecognized binary used to land on
+  // `text`, publishing a TTS clip as an unreadable, unplayable blob.
+  if (
+    ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'oga', 'opus', 'aiff', 'aif', 'wma'].includes(ext)
+  )
+    return 'audio';
   if (['html', 'htm'].includes(ext)) return 'dom_snapshot';
   if (['md', 'markdown'].includes(ext)) return 'markdown';
   return 'text';
@@ -387,9 +404,17 @@ export function reportEvidence(evidence: unknown): ReportEvidenceInput[] {
       // The report viewer pairs on `id` and drops any comparison lacking one, so
       // an id-less half could never render side by side. Warn rather than upload
       // a comparison that is silently downgraded to an ordinary image.
-      if (comparison && !(id && (role === 'before' || role === 'after'))) {
+      //
+      // Test the raw field, not the parsed object: a comparison written flat
+      // (`comparison: "row", role: "before"`) is not an object at all, so keying
+      // the warning off `objectValue()` skipped the one shape that most needs
+      // it — the author saw a clean ingest and unpaired images on the page.
+      // Absent means null/undefined only; `""` / `0` / `false` are malformed
+      // values that were written on purpose, so they warn like any other.
+      const hasComparison = value.comparison !== undefined && value.comparison !== null;
+      if (hasComparison && !(comparison && id && (role === 'before' || role === 'after'))) {
         log.warn(
-          `evidence ${evidencePath}: comparison needs both a string "id" and role "before"/"after" — ignoring it`,
+          `evidence ${evidencePath}: comparison must be an object with a string "id" and role "before"/"after" — ignoring it`,
         );
       }
       const layout = comparison?.layout === 'vertical' ? 'vertical' : undefined;
@@ -560,6 +585,81 @@ export function genericContextFromResult(
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
+/** The id a plan entry / case will be ingested under, mirroring the readers below. */
+const planItemId = (item: Record<string, unknown>, index: number) =>
+  String(item.id ?? `case-${index + 1}`);
+const caseItemId = (item: Record<string, unknown>, index: number) =>
+  String(item.id ?? item.checkItemId ?? `case-${index + 1}`);
+
+/** The outcome of {@link screenProgrammaticTestChecks}. */
+export interface ProgrammaticTestScreen {
+  /** Check ids to omit from both the frozen plan and the ingested cases. */
+  droppedIds: Set<string>;
+  /** What was dropped, `id — title`, for one warning the author can act on. */
+  droppedLabels: string[];
+}
+
+/**
+ * Which checks in this report are the repo's own programmatic test / static-
+ * analysis gates rather than delivery outcomes a person accepts.
+ *
+ * Screened once, over the plan AND the cases, so a dropped plan item can never
+ * leave its case behind as an orphan "unplanned" row (or the reverse). Both
+ * sides are matched on their own text, then unioned by id.
+ *
+ * Dropping one item rather than failing the ingest is deliberate: the round's
+ * real checks are still worth publishing, and a hard error would cost the author
+ * the whole publish over an item they only meant as a footnote. (The caller does
+ * refuse to publish when the screen empties the round — then there is nothing
+ * left for a person to accept.)
+ */
+export function screenProgrammaticTestChecks(
+  result: Record<string, unknown>,
+): ProgrammaticTestScreen {
+  const droppedIds = new Set<string>();
+  const droppedLabels: string[] = [];
+
+  const screen = (entry: unknown, id: string) => {
+    const item = objectValue(entry);
+    if (!item) return;
+    const title = firstString(item.title, item.name, item.case);
+    if (
+      !isProgrammaticTestCheck(
+        title,
+        firstString(item.category, item.group),
+        firstString(item.method, item.how),
+      )
+    ) {
+      return;
+    }
+    if (!droppedIds.has(id)) {
+      droppedIds.add(id);
+      droppedLabels.push(title ? `${id} — ${title}` : id);
+    }
+  };
+
+  if (Array.isArray(result.plan)) {
+    result.plan.forEach((entry, index) =>
+      screen(entry, planItemId(objectValue(entry) ?? {}, index)),
+    );
+  }
+  if (Array.isArray(result.cases)) {
+    result.cases.forEach((entry, index) =>
+      screen(entry, caseItemId(objectValue(entry) ?? {}, index)),
+    );
+  }
+
+  if (droppedLabels.length > 0) {
+    log.warn(
+      `dropping ${droppedLabels.length} programmatic-test check(s) from this acceptance round:`,
+    );
+    for (const label of droppedLabels) log.warn(`  - ${label}`);
+    log.warn(`  ${PROGRAMMATIC_TEST_CHECK_HINT}`);
+  }
+
+  return { droppedIds, droppedLabels };
+}
+
 /** Reject an out-of-vocabulary plan value rather than storing a word nothing reads. */
 export function assertPlanEnum<T extends string>(
   value: string,
@@ -596,8 +696,11 @@ export function assertPlanEnum<T extends string>(
  * Returns `undefined` when the report declares no `plan` field. A `plan` that is
  * present but empty returns `[]`, recording an explicitly empty plan in this
  * immutable snapshot.
+ *
+ * `droppedIds` (from {@link screenProgrammaticTestChecks}) omits the repo's own
+ * test/lint gates, which are shipping preconditions rather than acceptance items.
  */
-export function planFromResult(result: Record<string, unknown>) {
+export function planFromResult(result: Record<string, unknown>, droppedIds?: Set<string>) {
   if (!Array.isArray(result.plan)) return undefined;
 
   const items = result.plan.flatMap((entry: unknown, index: number) => {
@@ -606,7 +709,8 @@ export function planFromResult(result: Record<string, unknown>) {
     // An item with no title names no check — it can't be rendered or paired.
     if (!item || !title) return [];
 
-    const id = String(item.id ?? `case-${index + 1}`);
+    const id = planItemId(item, index);
+    if (droppedIds?.has(id)) return [];
     const method = firstString(item.method, item.how);
     const expected = firstString(item.expected, item.expectation);
 
@@ -653,6 +757,11 @@ export function planFromResult(result: Record<string, unknown>) {
       {
         ...(category === undefined ? {} : { category }),
         description: firstString(item.description),
+        sourceCriterionId: firstString(item.sourceCriterionId),
+        definition:
+          item.definition === undefined
+            ? undefined
+            : verifyCheckDefinitionSchema.parse(item.definition),
         id,
         index,
         onFail: 'manual' as const,
@@ -695,6 +804,50 @@ export function originFromEnv(): VerifyRunOrigin | undefined {
   };
 
   return Object.values(origin).some(Boolean) ? origin : undefined;
+}
+
+/**
+ * Derive the round's GOMS-KLM interaction cost from a trace dropped in the
+ * report directory, so the number the page shows is always the platform's own
+ * counting of the recorded actions.
+ *
+ * Interaction cost is an optional overlay. A round with no UI driver — a CLI
+ * verification, or a machine without agent-browser — simply has no trace, and
+ * that is silently skipped, never a warning and never a failure. A driver that
+ * computed its own summary still wins.
+ *
+ * "Its own summary" means an actual object. A scaffolded `result.json` carries
+ * `"interactionCost": null` to document the field, and a null is the absence of
+ * a measurement, not an assertion that this round cost nothing — treating mere
+ * key presence as an override let the report scaffolder silently suppress
+ * pricing on every traced run it created.
+ */
+export function interactionCostFromReportDir(
+  dir: string,
+  result: Record<string, unknown>,
+): VerifyInteractionCost | undefined {
+  if (objectValue(result.interactionCost)) return undefined;
+
+  const tracePath = path.join(dir, GOMS_KLM_TRACE_FILE);
+  if (!existsSync(tracePath)) return undefined;
+
+  let raw: string;
+  try {
+    raw = readFileSync(tracePath, 'utf8');
+  } catch {
+    log.warn(`${GOMS_KLM_TRACE_FILE} could not be read — publishing without interaction cost`);
+    return undefined;
+  }
+
+  const cost = summarizeKlmTrace(parseKlmTrace(raw), { sourceTrace: GOMS_KLM_TRACE_FILE });
+  if (!cost) {
+    log.warn(
+      `${GOMS_KLM_TRACE_FILE} recorded no priceable action (driver missing, or every action blocked) — skipping interaction cost`,
+    );
+    return undefined;
+  }
+
+  return cost;
 }
 
 export function metadataForReport(
@@ -789,4 +942,55 @@ export function statusColor(status: string): string {
   if (status === 'failed') return pc.red(status);
   if (status === 'running') return pc.yellow(status);
   return pc.dim(status);
+}
+
+/** A region a reviewer circled on one evidence image. */
+export interface ReviewAnnotationRegion {
+  comment?: string;
+  evidenceId?: string;
+  rect?: { height?: number; width?: number; x?: number; y?: number };
+}
+
+const asPercent = (value?: number) =>
+  typeof value === 'number' && Number.isFinite(value) ? `${Math.round(value * 100)}%` : undefined;
+
+/**
+ * Where a review annotation points, rendered for a terminal.
+ *
+ * The comment alone is not enough to act on: a screenshot usually has several
+ * plausible targets, and without the image and the rect the reader has to guess
+ * which one was circled. `rect` is normalized to the image box (0–1), so it is
+ * printed as percentages.
+ *
+ * Returns `undefined` when the annotation carries no location at all — an older
+ * review, or one made before regions existed.
+ */
+export function formatAnnotationRegion(
+  annotation: ReviewAnnotationRegion,
+  evidenceLabels?: Map<string, string>,
+): string | undefined {
+  const label = annotation.evidenceId
+    ? (evidenceLabels?.get(annotation.evidenceId) ?? annotation.evidenceId)
+    : undefined;
+
+  const { rect } = annotation;
+  const x = asPercent(rect?.x);
+  const y = asPercent(rect?.y);
+  const width = asPercent(rect?.width);
+  const height = asPercent(rect?.height);
+  const at = x && y ? `${x},${y}` : undefined;
+  const size = width && height ? `${width}×${height}` : undefined;
+  const position = [at, size].filter(Boolean).join(' · ');
+
+  if (!label && !position) return undefined;
+  if (!position) return label;
+  return label ? `${label} @ ${position}` : position;
+}
+
+/** Keep file identity when small text artifacts are stored inline. */
+export function evidenceDescriptionForFile(
+  description?: string,
+  file?: string,
+): string | undefined {
+  return description?.trim() || (file ? path.basename(file) : undefined);
 }

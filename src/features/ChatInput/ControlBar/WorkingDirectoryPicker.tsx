@@ -3,8 +3,8 @@
 import { isDesktop } from '@lobechat/const';
 import type { WorkingDirEntry } from '@lobechat/types';
 import { getWorkingDirSourcePath } from '@lobechat/types';
-import { ActionIcon, Flexbox, Icon, Input, Popover, Tooltip } from '@lobehub/ui';
-import { toast } from '@lobehub/ui/base-ui';
+import { Flexbox, Icon, Input, Popover, Tooltip } from '@lobehub/ui';
+import { ActionIcon, toast } from '@lobehub/ui/base-ui';
 import { createStaticStyles, cssVar, cx } from 'antd-style';
 import {
   CheckIcon,
@@ -19,6 +19,7 @@ import {
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useConversationStore } from '@/features/Conversation/store';
 import { openAddWorkingDirModal } from '@/features/WorkingDirectory';
 import {
   resolveAgentWorkingDirectorySource,
@@ -224,7 +225,7 @@ const ChooseLocalFolderRow = memo<{ defaultPath?: string; onPick: (entry: Folder
 );
 ChooseLocalFolderRow.displayName = 'ChooseLocalFolderRow';
 
-/** Web / remote device: filesystem isn't browsable here — enter an absolute path. */
+/** Browse the target device through its directory RPC. */
 const AddRemoteFolderRow = memo<{
   defaultCwd?: string;
   deviceId?: string;
@@ -233,7 +234,7 @@ const AddRemoteFolderRow = memo<{
 }>(({ defaultCwd, deviceId, onBeforeOpen, onPick }) => {
   const { t } = useTranslation('device');
 
-  // Stat the entered path on the target device (it can't be browsed here): block
+  // Validate the selected or manually entered path on the target device: block
   // on a definitive negative, otherwise commit with the detected repoType so the
   // recent entry shows the right (git / github) icon. An unreachable device
   // (null) is treated as "can't verify" and allowed through without a repoType.
@@ -249,7 +250,11 @@ const AddRemoteFolderRow = memo<{
 
   const handleClick = () => {
     onBeforeOpen();
-    openAddWorkingDirModal({ onSubmit: handleSubmit, placeholder: defaultCwd || undefined });
+    openAddWorkingDirModal({
+      defaultPath: defaultCwd || undefined,
+      deviceId,
+      onSubmit: handleSubmit,
+    });
   };
   return (
     <Flexbox
@@ -283,6 +288,7 @@ interface WorkingDirectoryPickerProps {
  * runs in when nothing is picked is never invisible.
  */
 const WorkingDirectoryPicker = memo<WorkingDirectoryPickerProps>(({ agentId }) => {
+  const topicId = useConversationStore((s) => s.context.topicId);
   const { t } = useTranslation('device');
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -310,10 +316,10 @@ const WorkingDirectoryPicker = memo<WorkingDirectoryPickerProps>(({ agentId }) =
   const recents = useMemo(() => rawRecents.filter(isValidWorkingDirEntry), [rawRecents]);
   const rawDeviceDefaultCwd = useDeviceStore(deviceSelectors.getDeviceDefaultCwd(targetDeviceId));
   const deviceDefaultCwd = getWorkingDirectoryPathString(rawDeviceDefaultCwd);
-  const rawTopicWorkingDirectory = useChatStore(topicSelectors.currentTopicWorkingDirectory);
+  const rawTopicWorkingDirectory = useChatStore(topicSelectors.getTopicWorkingDirectory(topicId));
   const topicWorkingDirectory = getWorkingDirectoryPathString(rawTopicWorkingDirectory);
-  const topicWorkingDirectoryConfig = useChatStore(
-    (s) => topicSelectors.currentTopicMetadata(s)?.workingDirectoryConfig,
+  const topicWorkingDirectoryConfig = useChatStore((s) =>
+    topicId ? topicSelectors.getTopicById(topicId)(s)?.metadata?.workingDirectoryConfig : undefined,
   );
   const rawLegacyAgentWorkingDirectory = useAgentStore(
     (s) => s.localAgentWorkingDirectoryMap[agentId],
@@ -348,7 +354,7 @@ const WorkingDirectoryPicker = memo<WorkingDirectoryPickerProps>(({ agentId }) =
     legacyAgentWorkingDirectory
   );
 
-  const { clear, commit } = useCommitWorkingDirectory(agentId);
+  const { clear, commit } = useCommitWorkingDirectory(agentId, topicId);
   const clearDeviceDefaultCwd = useDeviceStore((s) => s.clearDeviceDefaultCwd);
   const removeDeviceWorkingDir = useDeviceStore((s) => s.removeDeviceWorkingDir);
   const updateDeviceCwd = useDeviceStore((s) => s.updateDeviceCwd);

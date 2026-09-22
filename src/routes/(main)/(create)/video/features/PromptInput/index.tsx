@@ -1,8 +1,7 @@
 'use client';
 
-import { ModelIcon } from '@lobehub/icons';
-import { ActionIcon, Flexbox, InputNumber, SliderWithInput, Text } from '@lobehub/ui';
-import { Switch, Tabs } from '@lobehub/ui/base-ui';
+import { Flexbox, InputNumber } from '@lobehub/ui';
+import { ActionIcon, SliderWithInput, Switch, Tabs, Text } from '@lobehub/ui/base-ui';
 import { Divider } from 'antd';
 import { Clock3, Dices } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
@@ -10,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 
 import VideoFreeQuotaInfo from '@/business/client/features/VideoFreeQuotaInfo';
 import { loginRequired } from '@/components/Error/loginRequiredNotification';
+import { ModelIcon } from '@/components/LobeIcons';
 import Action from '@/features/ChatInput/ActionBar/components/Action';
 import ModelSwitchPanel from '@/features/ModelSwitchPanel';
 import PromptTransformAction from '@/features/PromptTransform/PromptTransformAction';
@@ -354,7 +354,7 @@ const PromptInput = ({ showTitle = false }: PromptInputProps) => {
     if (!canCreate) return;
 
     if (!isLogin) {
-      loginRequired.redirect({ timeout: 2000 });
+      loginRequired.redirect();
       return;
     }
 

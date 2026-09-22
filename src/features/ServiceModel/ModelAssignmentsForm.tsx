@@ -1,7 +1,7 @@
 'use client';
 
 import type { FormGroupItemType, FormItemProps } from '@lobehub/ui';
-import { Flexbox, Form, InputNumber, Skeleton, Tooltip } from '@lobehub/ui';
+import { Flexbox, Form, InputNumber, TextArea, Tooltip } from '@lobehub/ui';
 import { Switch } from '@lobehub/ui/base-ui';
 import isEqual from 'fast-deep-equal';
 import { memo, useEffect, useState } from 'react';
@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 
 import AsyncError from '@/components/AsyncError';
 import AutoSaveHint from '@/components/Editor/AutoSaveHint';
+import { RouteLoading } from '@/components/Skeleton/RouteSegment';
 import { FORM_STYLE } from '@/const/layoutTokens';
 import ModelSelect from '@/features/ModelSelect';
 import { SettingsSearchAnchor } from '@/features/SettingsSearch/anchor';
@@ -36,6 +37,8 @@ type LoadingKey = 'defaultAgent' | UserServiceModelConfigKey;
 type SavingGroup = 'assignments' | 'memory' | 'optional';
 
 const SYSTEM_AGENT_MODEL_ITEMS: SystemAgentModelItem[] = [
+  { key: 'expertise' },
+  { key: 'goal' },
   { key: 'topic' },
   { key: 'generationTopic' },
   { key: 'translation' },
@@ -44,6 +47,7 @@ const SYSTEM_AGENT_MODEL_ITEMS: SystemAgentModelItem[] = [
 ];
 
 const OPTIONAL_FEATURE_ITEMS: SystemAgentModelItem[] = [
+  { key: 'topicAutoSummary' },
   { key: 'followUpAction' },
   { key: 'inputCompletion' },
   { key: 'promptRewrite' },
@@ -101,7 +105,7 @@ const ModelAssignmentsForm = memo(() => {
           onRetry={() => refreshUserState()}
         />
       );
-    return <Skeleton active paragraph={{ rows: 8 }} title={false} />;
+    return <RouteLoading />;
   }
 
   const updateDefaultAgentModel = async ({
@@ -239,34 +243,41 @@ const ModelAssignmentsForm = memo(() => {
     return {
       children: (
         <Tooltip title={reason}>
-          <Flexbox
-            align="center"
-            direction="horizontal"
-            gap={12}
-            justify="flex-end"
-            style={{ width: 'min(100%, 448px)' }}
-          >
-            {/* Which model runs a feature is only worth asking once the feature
+          <Flexbox gap={12} style={{ width: 'min(100%, 448px)' }}>
+            <Flexbox align="center" direction="horizontal" gap={12} justify="flex-end">
+              {/* Which model runs a feature is only worth asking once the feature
                 itself is on — off, the picker is a dead control, so the switch
                 stands alone until it's flipped back. */}
-            {!featureDisabled && (
-              <ModelSelect
+              {!featureDisabled && (
+                <ModelSelect
+                  disabled={!canManageServiceModel}
+                  showAbility={false}
+                  style={{ minWidth: 0, width: '100%' }}
+                  value={value}
+                  onChange={(props) => updateSystemAgentModel(key, props)}
+                />
+              )}
+              <Flexbox align="center" direction="horizontal" gap={8}>
+                <Switch
+                  aria-label={t(`systemAgent.${key}.title`)}
+                  checked={value.enabled}
+                  disabled={!canManageServiceModel}
+                  loading={loadingKey === key}
+                  onChange={(enabled) => updateSystemAgentModel(key, { enabled })}
+                />
+              </Flexbox>
+            </Flexbox>
+            {key === 'topicAutoSummary' && !featureDisabled && (
+              <TextArea
+                autoSize={{ maxRows: 8, minRows: 3 }}
+                defaultValue={value.customPrompt}
                 disabled={!canManageServiceModel}
-                showAbility={false}
-                style={{ minWidth: 0, width: '100%' }}
-                value={value}
-                onChange={(props) => updateSystemAgentModel(key, props)}
+                placeholder={t('systemAgent.topicAutoSummary.promptPlaceholder')}
+                onBlur={(event) =>
+                  updateSystemAgentModel(key, { customPrompt: event.currentTarget.value.trim() })
+                }
               />
             )}
-            <Flexbox align="center" direction="horizontal" gap={8}>
-              <Switch
-                aria-label={t(`systemAgent.${key}.title`)}
-                checked={value.enabled}
-                disabled={!canManageServiceModel}
-                loading={loadingKey === key}
-                onChange={(enabled) => updateSystemAgentModel(key, { enabled })}
-              />
-            </Flexbox>
           </Flexbox>
         </Tooltip>
       ),

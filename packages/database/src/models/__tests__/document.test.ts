@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { agentShareFileAccessScope } from '@lobechat/types';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -376,6 +377,54 @@ describe('DocumentModel', () => {
   });
 
   describe('findById', () => {
+    it('hides a document derived from an agent-share file from ordinary document reads', async () => {
+      const { id: fileId } = await fileModel.create({
+        fileType: 'application/pdf',
+        metadata: { agentShare: { shareId: 'share-a', visitorUserId: 'visitor-a' } },
+        name: 'visitor.pdf',
+        size: 100,
+        url: 'files/user/agent-share/share-a/visitor.pdf',
+      });
+      const { id: documentId, slug } = await documentModel.create({
+        content: 'private visitor content',
+        fileId,
+        fileType: 'custom/document',
+        filename: 'visitor',
+        source: 'files/user/agent-share/share-a/visitor.pdf',
+        sourceType: 'file',
+        title: 'Visitor document',
+        totalCharCount: 23,
+        totalLineCount: 1,
+      });
+
+      await expect(documentModel.query({ sourceTypes: ['file'] })).resolves.toMatchObject({
+        items: [],
+        total: 0,
+      });
+      await expect(documentModel.findById(documentId)).resolves.toBeUndefined();
+      await expect(documentModel.findByIds([documentId])).resolves.toEqual([]);
+      await expect(documentModel.findByFileId(fileId)).resolves.toBeUndefined();
+      await expect(documentModel.findBySlug(slug!)).resolves.toBeUndefined();
+      await expect(
+        documentModel.findByFileId(
+          fileId,
+          agentShareFileAccessScope({
+            shareId: 'share-a',
+            visitorUserId: 'visitor-a',
+          }),
+        ),
+      ).resolves.toMatchObject({ id: documentId });
+      await expect(
+        documentModel.findByFileId(
+          fileId,
+          agentShareFileAccessScope({
+            shareId: 'share-a',
+            visitorUserId: 'visitor-b',
+          }),
+        ),
+      ).resolves.toBeUndefined();
+    });
+
     it('should find document by id', async () => {
       const { documentId } = await createTestDocument(documentModel, fileModel, 'Test content');
 
@@ -588,6 +637,89 @@ describe('DocumentModel', () => {
       expect(found).toBeDefined();
       // Should return the first created document
       expect(found?.id).toBe(firstId);
+    });
+
+    it('should return the oldest document when rows are inserted out of order', async () => {
+      const { id: fileId } = await fileModel.create({
+        fileType: 'text/plain',
+        name: 'test.txt',
+        size: 100,
+        url: 'https://example.com/test.txt',
+      });
+
+      const file = await fileModel.findById(fileId);
+      if (!file) throw new Error('File not found after creation');
+
+      // Insert the newer row first, so physical row order disagrees with
+      // creation order and an unordered lookup would return the wrong one.
+      await documentModel.create({
+        content: 'Newer document',
+        createdAt: new Date('2026-02-02T00:00:00.000Z'),
+        fileId: file.id,
+        fileType: 'text/plain',
+        source: file.url,
+        sourceType: 'file',
+        totalCharCount: 14,
+        totalLineCount: 1,
+      });
+
+      const { id: olderId } = await documentModel.create({
+        content: 'Older document',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        fileId: file.id,
+        fileType: 'text/plain',
+        source: file.url,
+        sourceType: 'file',
+        totalCharCount: 14,
+        totalLineCount: 1,
+      });
+
+      const found = await documentModel.findByFileId(file.id);
+      expect(found?.id).toBe(olderId);
+      expect(found?.content).toBe('Older document');
+    });
+
+    it('should break created-at ties on id so the lookup stays stable', async () => {
+      const { id: fileId } = await fileModel.create({
+        fileType: 'text/plain',
+        name: 'test.txt',
+        size: 100,
+        url: 'https://example.com/test.txt',
+      });
+
+      const file = await fileModel.findById(fileId);
+      if (!file) throw new Error('File not found after creation');
+
+      const sameInstant = new Date('2026-03-03T00:00:00.000Z');
+
+      // Identical timestamps, inserted highest id first: without a tiebreaker
+      // the row that comes back is whichever one the scan reaches first.
+      await documentModel.create({
+        content: 'Tie b',
+        createdAt: sameInstant,
+        fileId: file.id,
+        fileType: 'text/plain',
+        id: 'document-tie-b',
+        source: file.url,
+        sourceType: 'file',
+        totalCharCount: 5,
+        totalLineCount: 1,
+      });
+
+      await documentModel.create({
+        content: 'Tie a',
+        createdAt: sameInstant,
+        fileId: file.id,
+        fileType: 'text/plain',
+        id: 'document-tie-a',
+        source: file.url,
+        sourceType: 'file',
+        totalCharCount: 5,
+        totalLineCount: 1,
+      });
+
+      const found = await documentModel.findByFileId(file.id);
+      expect(found?.id).toBe('document-tie-a');
     });
 
     it('should handle different file types', async () => {

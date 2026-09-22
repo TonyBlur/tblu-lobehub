@@ -1,4 +1,6 @@
-import type { WorkingDirConfig } from '../device';
+import type { LobeAgentChatConfig } from '../agent/chatConfig';
+import type { CreateThreadWithMessageParams } from '../aiChat';
+import type { DeviceUnavailableErrorData, WorkingDirConfig } from '../device';
 import type { TaskDetail, UIChatMessage } from '../message';
 import type { ChatTopic } from '../topic';
 
@@ -67,6 +69,11 @@ export interface ExecAgentAppContext {
    * Forwarded into the operation so the completion path can project receipts.
    */
   agentSignal?: AgentSignalOperationMarker;
+  /**
+   * Agent that owns the conversation when it differs from the agent executing
+   * this run (for example, a single explicit @Agent direct route).
+   */
+  conversationAgentId?: string;
   /** Optional default assignee candidate for task manager prompts */
   defaultTaskAssigneeAgentId?: string;
   /** Current document ID for page-scoped conversations */
@@ -79,6 +86,18 @@ export interface ExecAgentAppContext {
    * itself.
    */
   editingAgentId?: string;
+  /**
+   * When scope is 'group_agent_builder', the ID of the group being edited (the
+   * group whose Profile page the user opened the builder panel on).
+   *
+   * Deliberately NOT `groupId`: that field marks the run as a *group chat* turn
+   * and gets stamped onto the created topic and messages, which would pull the
+   * builder's private side-conversation into the group's message read path
+   * (`MessageModel.query` filters group chats by `messages.groupId`). The
+   * builder conversation stays owned by the builtin builder agent; only the
+   * group-agent-builder tool runtime and its context injector read this field.
+   */
+  editingGroupId?: string;
   /** Group ID for group chat */
   groupId?: string | null;
   /**
@@ -91,10 +110,33 @@ export interface ExecAgentAppContext {
     workingDirectoryConfig?: WorkingDirConfig;
   };
   /**
+   * Whether this operation runs inside an isolation thread spawned by another
+   * operation on the same topic (callAgent / callSubAgent / group member).
+   *
+   * Such a run is a guest on its parent's topic: it must not claim or clear the
+   * topic's `runningOperation` mark, which is the parent run's gateway reconnect
+   * anchor. Broader than `isSubAgent` on purpose — the `execSubAgent` (callAgent)
+   * path passes `isSubAgent: false` yet is just as much a guest.
+   */
+  isolationThread?: boolean;
+  /**
    * Whether this operation is an isolated sub-agent execution. Used to disable
    * recursive sub-agent dispatch.
    */
   isSubAgent?: boolean;
+  /**
+   * Branch this run into a NEW thread (subtopic) under `topicId`, persisting the
+   * turn there instead of on the topic's main spine.
+   *
+   * Same intent the non-gateway send path expresses as `newThread` on
+   * `aiChat.sendMessageInServer`. The gateway path skips that call entirely, so
+   * without carrying it here the subtopic silently collapses back into the main
+   * conversation and no thread row is ever created.
+   *
+   * Ignored when `threadId` is already set — that is a follow-up inside an
+   * existing thread, which needs no new row.
+   */
+  newThread?: CreateThreadWithMessageParams;
   /**
    * Orchestration role of the agent for this group run. `'supervisor'` for the
    * group's coordinating agent (execGroupAgent), `'member'` for delegated members
@@ -132,12 +174,38 @@ export interface ExecAgentAppContext {
   threadId?: string | null;
   /** Topic ID */
   topicId?: string | null;
+  /**
+   * Goal detail page the conversation is happening on. The server builds
+   * `RuntimeInitialContext.goalOverview` from the goal graph so the agent can
+   * answer progress questions without tool calls.
+   */
+  viewedGoal?: { goalId: string };
 }
 
 /**
  * Parameters for execAgent - execute a single Agent
  * Either agentId or slug must be provided
  */
+/**
+ * Ids the client already rendered this run's rows under, for the server to
+ * honour verbatim — the gateway counterpart of `sendMessageInServer`'s
+ * `newTopic.id` / `newUserMessage.id` / `newAssistantMessage.id`. Without
+ * them the gateway path mints its own ids and the client's optimistic rows
+ * never converge with the server rows.
+ *
+ * Only meaningful for a fresh send. Resume / regeneration paths must NOT
+ * carry them: replaying an id there would collide with the row the original
+ * send already created.
+ */
+export interface ExecAgentClientIds {
+  /** Id for the assistant placeholder row this run creates. */
+  assistantMessageId?: string;
+  /** Id for the topic when this run creates one (ignored when reusing). */
+  topicId?: string;
+  /** Id for the user message row this run creates. */
+  userMessageId?: string;
+}
+
 export interface ExecAgentParams {
   /** The agent ID to run (either agentId or slug is required) */
   agentId?: string;
@@ -145,6 +213,8 @@ export interface ExecAgentParams {
   appContext?: ExecAgentAppContext;
   /** Whether to auto-start execution after creating operation (default: true) */
   autoStart?: boolean;
+  /** Client-minted ids for the rows this run creates (fresh sends only). */
+  clientIds?: ExecAgentClientIds;
   /**
    * Client IP of the originating request, captured server-side for run
    * attribution. Propagated into the run's `state.metadata` and downstream
@@ -164,8 +234,12 @@ export interface ExecAgentParams {
    * use the internal `files` param instead.
    */
   fileIds?: string[];
+  /** Opt into runtime state snapshots on step_complete events. Defaults to false. */
+  includeFinalState?: boolean;
   /** Additional system instructions appended after the agent's own system role */
   instructions?: string;
+  /** Current desktop's device ID; used only when the effective target is `local`. */
+  localDeviceId?: string;
   /** Override the agent's default model */
   model?: string;
   /**
@@ -178,6 +252,11 @@ export interface ExecAgentParams {
   prompt: string;
   /** Override the agent's default provider */
   provider?: string;
+  /**
+   * Existing topic operation this fresh turn atomically supersedes. The server
+   * accepts the handoff only while the topic marker still belongs to this id.
+   */
+  replacesOperationId?: string;
   /** The agent slug to run (either agentId or slug is required) */
   slug?: string;
   /**
@@ -226,9 +305,7 @@ export interface ScheduleAgentRunResult {
   topicId: string;
 }
 
-/**
- * Response from execAgent
- */
+/** Response from execAgent. */
 export interface ExecAgentResult {
   /** The resolved agent ID */
   agentId: string;
@@ -238,8 +315,18 @@ export interface ExecAgentResult {
   autoStarted: boolean;
   /** Timestamp when operation was created */
   createdAt: string;
+  /** The thread created for this run when `appContext.newThread` was supplied. */
+  createdThreadId?: string;
   /** Error message if operation failed to start */
   error?: string;
+  /** Structured availability context when a device dispatch failed before acceptance. */
+  errorData?: DeviceUnavailableErrorData;
+  /**
+   * External heterogeneous producer for this run. `null` explicitly denotes
+   * the normal AgentRuntime path; `undefined` is reserved for rolling clients
+   * talking to an older server that did not yet return this discriminator.
+   */
+  heteroType?: string | null;
   /** Status message */
   message: string;
   /** Queue message ID if auto-started */
@@ -377,15 +464,21 @@ export interface ExecSubAgentParams {
 export interface ExecVirtualSubAgentParams {
   /** The agent ID to execute */
   agentId: string;
+  /**
+   * chatConfig overrides (thinking / reasoning-effort extend params) for the
+   * sub-agent run, from the parent agent's `agencyConfig.subagent.chatConfig`.
+   * Merged over the executing agent's own chatConfig, skipping nulled keys.
+   */
+  chatConfig?: Partial<LobeAgentChatConfig> | null;
   /** The Group ID inherited from the parent operation, when present */
   groupId?: string;
   /** Instruction/prompt for the virtual sub-agent */
   instruction: string;
   /**
    * Model the sub-agent should run on, resolved by the spawn site from the
-   * parent agent's `agencyConfig.subagent`. Passed explicitly so the execution
-   * side never re-reads the parent config. Falls back to the global default
-   * (`DEFAULT_SUB_AGENT_MODEL`) at the spawn site when unset.
+   * parent agent's `agencyConfig.subagent` (explicit override or the parent's
+   * effective model). Passed explicitly so the execution side never re-reads
+   * the parent config.
    */
   model?: string;
   /** The parent placeholder tool message ID */

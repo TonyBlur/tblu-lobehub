@@ -11,6 +11,7 @@ import type {
   WorkVersionEventItem,
   WorkVersionEventMap,
   WorkVersionItem,
+  WorkVisibility,
 } from '@lobechat/types';
 
 import { mutate } from '@/libs/swr';
@@ -56,6 +57,8 @@ export const didToolMutateWorkView = ({
 };
 
 class WorkService {
+  private readonly workspaceListRefreshers = new Set<() => Promise<unknown>>();
+
   // This client ships the descriptor fallback for every registered Work type, so
   // it always opts into the `file` type (and any future gated type). The flag is
   // set here at the service boundary rather than per call site — an
@@ -71,8 +74,10 @@ class WorkService {
   listByWorkspace = async (params: {
     cursor?: string | null;
     limit?: number;
+    originAgentId?: string | null;
     provider?: WorkSkillProvider;
     type?: WorkType | null;
+    visibility?: WorkVisibility;
   }): Promise<WorkSummaryPage> =>
     lambdaClient.work.listByWorkspace.query({ ...params, includeFileWorks: true });
 
@@ -100,9 +105,25 @@ class WorkService {
   deleteTaskWork = async (params: { taskId: string }): Promise<void> =>
     lambdaClient.work.deleteTaskWork.mutate(params);
 
+  /** Remove one Work card by id (see `useRemoveWork`); server-side restricted to the caller's own rows. */
+  deleteWork = async (id: string): Promise<void> => lambdaClient.work.deleteWork.mutate({ id });
+
   handleSkillToolResult = async (
     params: RegisterSkillToolResultWorkParams,
   ): Promise<WorkItem | null> => lambdaClient.work.handleSkillToolResult.mutate(params);
+
+  /**
+   * Report a finished desktop-LOCAL hetero run's tool messages for the
+   * server-side shell Work scan (gh CLI → github Work cards). Local runs have
+   * no `agent_operations` row, so the server's completion scan never fires for
+   * them — the executor calls this at clean completion instead.
+   */
+  registerShellWorksForRun = async (params: {
+    anchorMessageId: string;
+    messageIds: string[];
+    topicId: string;
+  }): Promise<{ failed: number; registered: number; rootOperationId: string | null }> =>
+    lambdaClient.work.registerShellWorksForRun.mutate(params);
 
   /**
    * Invalidate everything a Work mutation can change for a conversation:
@@ -129,6 +150,26 @@ class WorkService {
 
   refreshAll = async () => {
     await mutate(matchDomain('work:'));
+  };
+
+  /**
+   * Register a mounted workspace gallery's bound SWR Infinite revalidator.
+   *
+   * SWR intentionally skips `$inf$` keys for filter-form global mutations, so
+   * mutations outside the gallery cannot otherwise refresh its aggregate page
+   * cache. The returned cleanup keeps this registry scoped to mounted lists.
+   */
+  registerWorkspaceListRefresh = (refresh: () => Promise<unknown>) => {
+    this.workspaceListRefreshers.add(refresh);
+
+    return () => {
+      this.workspaceListRefreshers.delete(refresh);
+    };
+  };
+
+  /** Refresh every mounted workspace Work list through its bound SWR mutation. */
+  refreshWorkspaceLists = async () => {
+    await Promise.all([...this.workspaceListRefreshers].map((refresh) => refresh()));
   };
 
   /**

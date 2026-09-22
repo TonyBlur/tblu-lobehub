@@ -2,6 +2,7 @@ import {
   AgentBuilderIdentifier,
   type GetAvailableModelsParams,
   type InstallPluginParams,
+  normalizeUpdateConfigParams,
   type SearchMarketToolsParams,
   type UpdateAgentConfigParams,
   type UpdatePromptParams,
@@ -38,7 +39,17 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
     const agentModel = new AgentModel(context.serverDB, userId, context.workspaceId);
     const pluginModel = new PluginModel(context.serverDB, userId, context.workspaceId);
     const aiInfraRepos = new AiInfraRepos(context.serverDB, userId, {}, context.workspaceId);
-    const discoverService = new DiscoverService();
+    /**
+     * Market list endpoints require an authenticated caller, and `DiscoverService`
+     * only signs a trusted-client token when it is given an identity — built
+     * without one it sends no credentials at all and every market read fails as
+     * `unauthorized`, which `searchMarketTools` surfaces as a plain tool failure
+     * the model silently works around. `workspaceId` additionally attributes the
+     * read to the workspace rather than the personal account.
+     */
+    const discoverService = new DiscoverService({
+      userInfo: { userId, workspaceId: context.workspaceId },
+    });
 
     return {
       getAvailableModels: async (
@@ -185,22 +196,7 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
             return { content: `Agent "${agentId}" not found.`, success: false };
           }
 
-          let rawConfig: any = params.config;
-          if (typeof rawConfig === 'string') {
-            try {
-              rawConfig = JSON.parse(rawConfig);
-            } catch {
-              rawConfig = undefined;
-            }
-          }
-          let rawMeta: any = params.meta;
-          if (typeof rawMeta === 'string') {
-            try {
-              rawMeta = JSON.parse(rawMeta);
-            } catch {
-              rawMeta = undefined;
-            }
-          }
+          const { config: rawConfig, meta: rawMeta } = normalizeUpdateConfigParams(params);
 
           let finalConfig = rawConfig ? { ...rawConfig } : {};
           const updatedParts: string[] = [];
@@ -228,7 +224,12 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
           }
 
           if (Object.keys(finalConfig).length > 0) {
-            await agentModel.updateConfig(agentId, finalConfig);
+            // Domain tool plugins support structured entries, while the DB
+            // model's JSONB column still carries its legacy string[] annotation.
+            await agentModel.updateConfig(
+              agentId,
+              finalConfig as unknown as Parameters<typeof agentModel.updateConfig>[1],
+            );
             const nonPluginFields = Object.keys(finalConfig).filter((f) => f !== 'plugins');
             if (nonPluginFields.length > 0) {
               updatedParts.push(`config fields: ${nonPluginFields.join(', ')}`);

@@ -185,7 +185,46 @@ export const MessageWorkMetadataSchema = z.object({
   userMessageId: z.string().optional(),
 });
 
+export const AgentDispatchMetadataSchema = z.object({
+  kind: z.enum(['callAgent']),
+  visibility: z.literal('internal'),
+});
+
+export interface AgentDispatchMetadata {
+  kind: 'callAgent';
+  visibility: 'internal';
+}
+
+export const BotSenderMetadataSchema = z.object({
+  avatar: z.string().optional(),
+  fullName: z.string().optional(),
+  id: z.string(),
+  platform: z.string(),
+  username: z.string().optional(),
+});
+
+/**
+ * The real platform author of a user message that arrived through a bot
+ * channel (Feishu, Discord, Slack, …). Such rows are inserted under the bot
+ * OWNER's `userId`, so the joined `sender` is the owner — this block carries
+ * the identity the UI should show instead.
+ */
+export interface BotSenderMetadata {
+  /** Absolute avatar URL when the platform exposes one. */
+  avatar?: string;
+  /** Platform display name / nickname. */
+  fullName?: string;
+  /** Platform user id (Feishu open_id, Discord snowflake, …). */
+  id: string;
+  /** Bot platform identifier, e.g. `feishu`, `discord`. */
+  platform: string;
+  /** Platform handle when distinct from the display name. */
+  username?: string;
+}
+
 export const MessageMetadataSchema = ModelUsageSchema.merge(ModelPerformanceSchema).extend({
+  botSender: BotSenderMetadataSchema.optional(),
+  agentDispatch: AgentDispatchMetadataSchema.optional(),
   collapsed: z.boolean().optional(),
   contextSelections: z.array(ContextSelectionSchema).optional(),
   // Hetero-agent (Claude Code) per-message provenance. Listed here so zod does
@@ -215,6 +254,7 @@ export const MessageMetadataSchema = ModelUsageSchema.merge(ModelPerformanceSche
   scope: z.string().optional(),
   // External-signal lineage for Monitor-style callback turns ().
   signal: MessageSignalSchema.optional(),
+  steer: z.boolean().optional(),
   subAgentId: z.string().optional(),
   // role='taskCallback' card: which task delivered its handoff back to this
   // conversation, and the run outcome. The card header + jump link read this.
@@ -274,6 +314,15 @@ export interface MessageMetadata {
    */
   agentCouncil?: boolean;
   /**
+   * Explicit transport semantics for an internal cross-agent dispatch turn.
+   * Renderers consume this marker instead of inferring intent from the message tree.
+   */
+  agentDispatch?: AgentDispatchMetadata;
+  /**
+   * Real platform author of a bot-channel user message; see `BotSenderMetadata`.
+   */
+  botSender?: BotSenderMetadata;
+  /**
    * Message collapse state
    * true: collapsed, false/undefined: expanded
    */
@@ -284,6 +333,15 @@ export interface MessageMetadata {
    * Page selections remain mirrored in `pageSelections` for compatibility.
    */
   contextSelections?: ContextSelection[];
+  /**
+   * This row is a DUPLICATED transcript (agent/group copy, workspace import),
+   * not a generation event in its current scope: the tokens were consumed by
+   * the source, so usage REPORTS exclude it. The row keeps its own token/cost
+   * figures — they describe the generation the transcript records, and the
+   * chat UI and context engine read them — so this marker is the only thing
+   * separating "what this scope spent" from "what this transcript shows".
+   */
+  copied?: boolean;
   /** @deprecated use the top-level message `usage` field instead */
   cost?: number;
   /** @deprecated use `metadata.performance` instead */
@@ -431,6 +489,11 @@ export interface MessageMetadata {
    * `@lobechat/types` stays free of an adapter-package dependency.
    */
   signal?: MessageSignal;
+  /**
+   * User message sent from the input queue while the previous turn was still
+   * running. Renders as a continuation of that turn instead of a new one.
+   */
+  steer?: boolean;
   /**
    * Sub Agent ID - behavior depends on scope
    * - scope: 'sub_agent': conversation-flow will transform message.agentId to this value for display

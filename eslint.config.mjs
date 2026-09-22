@@ -8,11 +8,47 @@ const tsconfigRootDir = fileURLToPath(new URL('.', import.meta.url));
 
 const baseRestrictedImportOptions = restrictedImports.rules['no-restricted-imports'][1];
 
+// Shared by every src/** no-restricted-imports block: flat config replaces a
+// rule per file instead of merging it, so a scoped override would otherwise
+// drop these.
 const performanceRestrictedImportPaths = [
+  {
+    allowTypeImports: true,
+    importNames: ['ModelIcon', 'ModelTag', 'ProviderCombine', 'ProviderIcon'],
+    message:
+      'These features statically import every brand icon (~3 MB). Import them from "@/components/LobeIcons", which mounts them through lazy().',
+    name: '@lobehub/icons',
+  },
+  {
+    allowTypeImports: true,
+    message:
+      'Import ProviderIcon / ProviderCombine from "@/components/LobeIcons", which mounts them through lazy().',
+    name: '@/libs/providerIcon',
+  },
+  {
+    allowTypeImports: true,
+    importNames: ['EmojiPicker'],
+    message:
+      'EmojiPicker carries the emoji-mart dataset. Use "@/components/EmojiPicker", which mounts it through lazy().',
+    name: '@lobehub/ui',
+  },
   {
     message:
       'Import the imperative facade from "@/features/ShareModal" so the modal implementation stays outside initial chunks.',
     name: '@/features/ShareModal/Modal',
+  },
+  {
+    allowTypeImports: true,
+    importNames: ['motion', 'm'],
+    message:
+      'The app runs under <LazyMotion features={domMax}>; `motion` bundles every feature again and `m` from the barrel drags it along. Use `import * as m from "motion/react-m"`.',
+    name: 'motion/react',
+  },
+  {
+    allowTypeImports: true,
+    message:
+      'Do not import the model-bank root barrel; it re-exports the full aiModels catalog (1.4 MB raw). Use a subpath such as "model-bank/aiModel", "model-bank/modelProvider", "model-bank/standardParameters" or "model-bank/utils".',
+    name: 'model-bank',
   },
 ];
 
@@ -59,6 +95,38 @@ const createRestrictedImportRule = ({ paths = [], patterns } = {}) => [
   },
 ];
 
+// useRef(initial) re-evaluates `initial` on every render. Ban call/new expressions
+// so expensive work and empty Map/Set allocations don't happen as throwaway inits.
+// Use useSingleton(() => ...) for a once-created value; do not wrap it in useRef.
+const useRefLazyInitMessage =
+  "Do not pass a call or `new` expression to useRef() — the argument is evaluated on every render. Use useSingleton(() => ...) from '@/hooks/useSingleton' instead (do not wrap useSingleton in useRef).";
+
+const useRefLazyInitRestrictedSyntax = [
+  {
+    message: useRefLazyInitMessage,
+    selector: "CallExpression[callee.name='useRef'] > CallExpression.arguments:first-child",
+  },
+  {
+    message: useRefLazyInitMessage,
+    selector:
+      "CallExpression[callee.property.name='useRef'] > CallExpression.arguments:first-child",
+  },
+  {
+    message: useRefLazyInitMessage,
+    selector: "CallExpression[callee.name='useRef'] > NewExpression.arguments:first-child",
+  },
+  {
+    message: useRefLazyInitMessage,
+    selector: "CallExpression[callee.property.name='useRef'] > NewExpression.arguments:first-child",
+  },
+];
+
+const electronIpcRemoveListenerRestrictedSyntax = {
+  message:
+    'Do not use removeListener in renderer code. Electron contextBridge does not preserve listener identity across calls; use the disposer returned by ipcRenderer.on().',
+  selector: "CallExpression > MemberExpression.callee[property.name='removeListener']",
+};
+
 export default eslint(
   {
     ignores: [
@@ -97,6 +165,12 @@ export default eslint(
       '.i18nrc.js',
       // vendored code (copied from @microsoft/fetch-event-source)
       'packages/utils/src/client/fetchEventSource/parse.ts',
+      // generated files (regenerate with `bun generate:openapi` in packages/openapi)
+      'packages/openapi/openapi.yml',
+      // generated files (regenerate with `bun generate` in packages/sdk)
+      'packages/sdk/src/generated/**',
+      // generated files (regenerate with `codex app-server generate-ts`)
+      'packages/heterogeneous-agents/src/codex/protocol/generated.ts',
     ],
     next: true,
     react: 'next',
@@ -115,6 +189,100 @@ export default eslint(
     files: ['src/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': createRestrictedImportRule(),
+    },
+  },
+  {
+    // Bundle-size restrictions target shipped code; tests may reach the barrels.
+    files: ['src/**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': ['error', baseRestrictedImportOptions],
+    },
+  },
+  {
+    // Boot-path trees are statically reachable from the SPA entry. A heavy
+    // @lobehub/ui member imported here lands in the first-screen chunk together
+    // with shiki / katex / elkjs / emoji data; the CI entry-graph gate catches
+    // the regression, this rule explains it at the import site.
+    files: [
+      'src/layout/**/*.{ts,tsx}',
+      'src/spa/**/*.{ts,tsx}',
+      'src/store/**/*.{ts,tsx}',
+      'src/utils/**/*.{ts,tsx}',
+      // The main layout and the home route are the first navigation's closure.
+      'src/routes/**/_layout/**/*.{ts,tsx}',
+      'src/routes/(main)/home/**/*.{ts,tsx}',
+      'src/features/Home/**/*.{ts,tsx}',
+      'src/features/HomeSidebar/**/*.{ts,tsx}',
+      'src/features/NavPanel/**/*.{ts,tsx}',
+    ],
+    ignores: ['src/**/*.test.{ts,tsx}', 'src/layout/AuthProvider/MarketAuth/ProfileSetupModal.tsx'],
+    rules: {
+      'no-restricted-imports': createRestrictedImportRule({
+        paths: [
+          {
+            importNames: [
+              'CodeDiff',
+              'CodeEditor',
+              'EmojiPicker',
+              'Highlighter',
+              'HtmlPreview',
+              'Markdown',
+              'Mermaid',
+              'PatchDiff',
+              'Snippet',
+              'SortableList',
+              'SyntaxHighlighter',
+              'SyntaxMermaid',
+            ],
+            message:
+              'Boot-path modules must not statically import heavy @lobehub/ui members. Load them with lazy(() => import("@lobehub/ui/es/<Member>/index")) or move the consumer into a route tree.',
+            name: '@lobehub/ui',
+          },
+          {
+            message:
+              'Boot-path modules must load EmojiPicker with lazy(); it carries the emoji-mart dataset.',
+            name: '@/components/EmojiPicker',
+          },
+          {
+            allowTypeImports: true,
+            message:
+              'Boot-path modules must not import @lobehub/analytics; it bundles posthog-js. Use "@/libs/analytics/client", which loads it after first paint and queues events.',
+            name: '@lobehub/analytics',
+          },
+          {
+            allowTypeImports: true,
+            message:
+              'Boot-path modules must not import @lobehub/analytics/react; use useAnalytics from "@/libs/analytics/client".',
+            name: '@lobehub/analytics/react',
+          },
+        ],
+        patterns: [
+          {
+            message:
+              'The builtin tool client barrel exports the whole render registry. Import the dedicated subpath (e.g. "/client/displayControls") or resolve renders lazily.',
+            regex: '^@lobechat/builtin-tool-[^/]+/client(?:$|/index$)',
+          },
+        ],
+      }),
+    },
+  },
+  {
+    files: ['src/components/Skeleton/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': createRestrictedImportRule({
+        paths: [
+          {
+            name: '@/components/Skeleton',
+            message:
+              'Skeleton internals must import sibling components directly to avoid a cycle through their own barrel.',
+          },
+          {
+            name: '@/components/Skeleton/index',
+            message:
+              'Skeleton internals must import sibling components directly to avoid a cycle through their own barrel.',
+          },
+        ],
+      }),
     },
   },
   {
@@ -226,11 +394,12 @@ export default eslint(
     },
   },
   {
-    files: ['src/features/Home/**/*.{ts,tsx}', 'src/routes/(main)/home/**/*.{ts,tsx}'],
-    ignores: [
-      'src/routes/(main)/home/_layout/hooks/useCreateModal.tsx',
-      'src/features/Home/InputArea/EditorInput.tsx',
+    files: [
+      'src/features/Home/**/*.{ts,tsx}',
+      'src/features/HomeLayout/**/*.{ts,tsx}',
+      'src/routes/(main)/home/**/*.{ts,tsx}',
     ],
+    ignores: ['src/features/Home/InputArea/EditorInput.tsx'],
     rules: {
       'no-restricted-imports': createRestrictedImportRule({
         paths: [
@@ -239,6 +408,34 @@ export default eslint(
               'Home cold-path modules must use stable Conversation subpaths instead of the root barrel that exports ChatInput.',
             name: '@/features/Conversation',
           },
+        ],
+        patterns: [
+          {
+            message:
+              'Home cold-path modules must not statically import ChatInput. Load an isolated editor entry with import().',
+            regex:
+              '^@/features/ChatInput(?:$|/(?!(?:store/initialState|utils/contextSelections)$).+)',
+          },
+        ],
+      }),
+    },
+  },
+  {
+    // The home sidebar tree carries both sets of constraints: it is a shell tree
+    // rendered outside TabHost, and it is also a home cold path. Flat config
+    // replaces `no-restricted-imports` rather than merging it, so the shell paths
+    // have to be repeated here instead of relying on the shell block above.
+    files: ['src/features/HomeSidebar/**/*.{ts,tsx}'],
+    ignores: ['src/features/HomeSidebar/hooks/useCreateModal.tsx'],
+    rules: {
+      'no-restricted-imports': createRestrictedImportRule({
+        paths: [
+          {
+            message:
+              'Home cold-path modules must use stable Conversation subpaths instead of the root barrel that exports ChatInput.',
+            name: '@/features/Conversation',
+          },
+          ...shellRouterRestrictedPaths,
         ],
         patterns: [
           {
@@ -282,6 +479,8 @@ export default eslint(
       'react/no-unknown-property': 0,
       'regexp/match-any': 0,
       'unicorn/better-regex': 0,
+      // conflicts with prettier, which lowercases hex literals
+      'unicorn/number-literal-case': 0,
     },
   },
   // TypeScript files - enforce consistent type imports
@@ -293,6 +492,22 @@ export default eslint(
         {
           fixStyle: 'separate-type-imports',
         },
+      ],
+      'no-restricted-syntax': ['error', ...useRefLazyInitRestrictedSyntax],
+    },
+  },
+  {
+    files: [
+      'apps/desktop/src/overlay/**/*.{ts,tsx}',
+      'packages/electron-client-ipc/src/**/*.{ts,tsx}',
+      'src/**/*.{ts,tsx}',
+    ],
+    ignores: ['src/hooks/usePWAInstall.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        ...useRefLazyInitRestrictedSyntax,
+        electronIpcRemoveListenerRestrictedSyntax,
       ],
     },
   },
@@ -325,6 +540,7 @@ export default eslint(
     rules: {
       'no-restricted-syntax': [
         'error',
+        ...useRefLazyInitRestrictedSyntax,
         {
           message: 'Chinese characters are not allowed in aiModels files. Use English instead.',
           selector: 'Literal[value=/[\\u4e00-\\u9fff]/]',

@@ -1,6 +1,6 @@
 import { type UIChatMessage } from '@lobechat/types';
 import { TraceEventType } from '@lobechat/types';
-import * as lobeUIModules from '@lobehub/ui';
+import { copyToClipboard } from '@lobehub/ui';
 import { act, renderHook } from '@testing-library/react';
 import { type Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,11 +14,17 @@ import {
   runMessageListQuery,
 } from '@/services/message/cache';
 import { topicService } from '@/services/topic';
+import { LOCAL_MESSAGE_SCOPE } from '@/store/chat/utils/localMessages';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
 import { useChatStore } from '../../store';
 
 // Mock @/libs/swr mutate
+vi.mock('@lobehub/ui', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  copyToClipboard: vi.fn(),
+}));
+
 vi.mock('@/libs/swr', async () => {
   const actual = await vi.importActual('@/libs/swr');
   return {
@@ -28,12 +34,19 @@ vi.mock('@/libs/swr', async () => {
   };
 });
 
+vi.mock('swr', async () => {
+  const actual = await vi.importActual('swr');
+  return {
+    ...(actual as any),
+    mutate: vi.fn(),
+  };
+});
+
 vi.stubGlobal(
   'fetch',
   vi.fn(() => Promise.resolve(new Response('mock'))),
 );
 
-vi.mock('zustand/traditional');
 // Mock service
 vi.mock('@/services/message', () => ({
   messageService: {
@@ -68,12 +81,19 @@ const mockState = {
   refreshTopic: vi.fn(),
   internal_coreProcessMessage: vi.fn(),
   saveToTopic: vi.fn(),
+  voiceMessageUploadMap: {},
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
   clearMessageListClientCacheState();
   useChatStore.setState(mockState, false);
+
+  // Vitest 5 no longer resets automock state in `vi.restoreAllMocks`, so a
+  // `mockResolvedValue` set with `vi.spyOn(messageService, …)` inside a test leaks
+  // into the following ones. Re-apply the factory defaults here.
+  (messageService.updateMessage as Mock).mockResolvedValue({ success: true, messages: [] } as any);
+  (messageService.removeMessage as Mock).mockResolvedValue({ success: true, messages: [] } as any);
 });
 
 afterEach(() => {
@@ -450,13 +470,12 @@ describe('chatMessage actions', () => {
       const messageId = 'message-id';
       const content = 'Test content';
       const { result } = renderHook(() => useChatStore());
-      const copyToClipboardSpy = vi.spyOn(lobeUIModules, 'copyToClipboard');
 
       await act(async () => {
         await result.current.copyMessage(messageId, content);
       });
 
-      expect(copyToClipboardSpy).toHaveBeenCalledWith(content);
+      expect(copyToClipboard).toHaveBeenCalledWith(content);
     });
 
     it('should call internal_traceMessage with correct parameters', async () => {
@@ -747,15 +766,6 @@ describe('chatMessage actions', () => {
   });
 
   describe('refreshMessages action', () => {
-    beforeEach(() => {
-      vi.mock('swr', async () => {
-        const actual = await vi.importActual('swr');
-        return {
-          ...(actual as any),
-          mutate: vi.fn(),
-        };
-      });
-    });
     afterEach(() => {
       // 在每个测试用例开始前恢复到实际的 SWR 实现
       vi.resetAllMocks();
@@ -1299,6 +1309,121 @@ describe('chatMessage actions', () => {
       expect(isMessageListServerVerified(context)).toBe(false);
     });
 
+    it('keeps an active local voice row in memory without writing it to SWR', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const context = { agentId: 'voice-agent', topicId: 'voice-topic' };
+      const key = messageMapKey(context);
+      const persistedMessage = {
+        content: 'persisted',
+        createdAt: 1,
+        id: 'persisted-message',
+        role: 'assistant',
+        updatedAt: 1,
+      } as any;
+      const localVoiceMessage = {
+        audioList: [{ id: 'local-audio', url: 'blob:voice-preview' }],
+        content: '',
+        createdAt: 2,
+        id: 'tmp-voice-message',
+        metadata: { scope: LOCAL_MESSAGE_SCOPE },
+        role: 'user',
+        updatedAt: 2,
+      } as any;
+
+      act(() => {
+        useChatStore.setState({
+          dbMessagesMap: { [key]: [localVoiceMessage] },
+          voiceMessageUploadMap: {
+            [localVoiceMessage.id]: { progress: 50, status: 'uploading' },
+          },
+        });
+      });
+
+      await act(async () => {
+        result.current.replaceMessages([persistedMessage], { context });
+      });
+
+      expect(result.current.dbMessagesMap[key]).toEqual([persistedMessage, localVoiceMessage]);
+      expect(mutate).toHaveBeenCalledWith(messageListKey(context), [persistedMessage], {
+        revalidate: false,
+      });
+    });
+
+    it('keeps an earlier local voice row ahead of a later server snapshot message', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const context = { agentId: 'voice-order-agent', topicId: 'voice-order-topic' };
+      const key = messageMapKey(context);
+      const localVoiceMessage = {
+        audioList: [{ id: 'local-audio', url: 'blob:voice-preview' }],
+        content: '',
+        createdAt: 1,
+        id: 'tmp-voice-message',
+        metadata: { scope: LOCAL_MESSAGE_SCOPE },
+        role: 'user',
+        updatedAt: 1,
+      } as any;
+      const laterPersistedMessage = {
+        content: 'later text',
+        createdAt: 2,
+        id: 'persisted-message',
+        role: 'user',
+        updatedAt: 2,
+      } as any;
+
+      act(() => {
+        useChatStore.setState({
+          dbMessagesMap: { [key]: [localVoiceMessage] },
+          voiceMessageUploadMap: {
+            [localVoiceMessage.id]: { progress: 50, status: 'uploading' },
+          },
+        });
+      });
+
+      await act(async () => {
+        result.current.replaceMessages([laterPersistedMessage], { context });
+      });
+
+      expect(result.current.dbMessagesMap[key]).toEqual([localVoiceMessage, laterPersistedMessage]);
+    });
+
+    it('drops an inactive local-only row from memory and cache input', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const context = { agentId: 'inactive-voice-agent', topicId: 'inactive-voice-topic' };
+      const key = messageMapKey(context);
+      const persistedMessage = {
+        content: 'persisted',
+        createdAt: 1,
+        id: 'persisted-message',
+        role: 'assistant',
+        updatedAt: 1,
+      } as any;
+      const inactiveLocalMessage = {
+        audioList: [{ id: 'local-audio', url: 'blob:stale-preview' }],
+        content: '',
+        createdAt: 2,
+        id: 'tmp-stale-voice-message',
+        metadata: { scope: LOCAL_MESSAGE_SCOPE },
+        role: 'user',
+        updatedAt: 2,
+      } as any;
+
+      act(() => {
+        useChatStore.setState({
+          dbMessagesMap: { [key]: [inactiveLocalMessage] },
+          voiceMessageUploadMap: {},
+        });
+      });
+
+      await act(async () => {
+        result.current.replaceMessages([persistedMessage, inactiveLocalMessage], { context });
+      });
+
+      expect(result.current.dbMessagesMap[key]).toEqual([persistedMessage]);
+      expect(mutate).toHaveBeenCalledWith(messageListKey(context), [persistedMessage], {
+        revalidate: false,
+      });
+    });
+
     it('skips write-through when the conversation has no persisted topic', async () => {
       const { result } = renderHook(() => useChatStore());
 
@@ -1392,6 +1517,25 @@ describe('chatMessage actions', () => {
         result.current.replaceMessages([{ id: 'm2', role: 'user', content: 'hi' }] as any, {
           action: 'useFetchMessages',
           context: { agentId: 'wt-agent-2', topicId: 'wt-topic-2' },
+        });
+      });
+
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it("skips write-through for fetch-sourced echoes (source: 'fetch')", async () => {
+      // Regression: the Conversation store's SWR onData echoes fetched
+      // snapshots out through onMessagesChange → replaceMessages. At mount the
+      // echo carries the STALE cached list while the switch-time revalidation
+      // is in flight; writing it through the SWR cache trips SWR's mutation
+      // race guard, which discards the fresh result and locks the conversation
+      // on the stale/partial list.
+      const { result } = renderHook(() => useChatStore());
+
+      await act(async () => {
+        result.current.replaceMessages([{ id: 'm-echo', role: 'user', content: 'hi' }] as any, {
+          context: { agentId: 'wt-agent-3', topicId: 'wt-topic-3' },
+          source: 'fetch',
         });
       });
 
@@ -1655,6 +1799,56 @@ describe('chatMessage actions', () => {
 
       expect(messageService.getMessages).toHaveBeenCalledTimes(1);
       await expect(mountedQuery).resolves.toEqual(messages);
+    });
+
+    it('drops a prefetch result that resolves after the context started running', async () => {
+      // Regression: the running guard only ran when the prefetch STARTED. If the
+      // user opened that topic and submitted a follow-up before the request
+      // resolved, the pre-run server snapshot overwrote the freshly created
+      // user/assistant rows; subsequent streaming updates target ids that are no
+      // longer in the bucket and are silently dropped until terminal
+      // reconciliation. Mirrors the delivery-time guard `useFetchMessages`
+      // onData already applies.
+      const { result } = renderHook(() => useChatStore());
+
+      const context = {
+        agentId: 'prefetch-agent',
+        scope: 'main' as const,
+        topicId: 'raced-topic',
+      };
+      const key = messageMapKey(context);
+      const preRunSnapshot = [{ id: 'old-message', role: 'user', content: 'hi' }] as any;
+      const liveMessages = [
+        ...preRunSnapshot,
+        { id: 'new-user-message', role: 'user', content: 'follow-up' },
+        { id: 'new-assistant-message', role: 'assistant', content: '' },
+      ] as any;
+
+      let resolveRequest!: (value: UIChatMessage[]) => void;
+      (messageService.getMessages as Mock).mockReturnValue(
+        new Promise<UIChatMessage[]>((resolve) => {
+          resolveRequest = resolve;
+        }),
+      );
+
+      const prefetchPromise = result.current.prefetchMessages(context);
+      await Promise.resolve();
+      expect(messageService.getMessages).toHaveBeenCalledTimes(1);
+
+      // While the request is in flight: the user opens the topic and sends a
+      // follow-up — optimistic rows land in the bucket and a run starts.
+      await act(async () => {
+        useChatStore.setState({ dbMessagesMap: { [key]: liveMessages } });
+        result.current.startOperation({ type: 'execAgentRuntime', context });
+      });
+
+      await act(async () => {
+        resolveRequest(preRunSnapshot);
+        await prefetchPromise;
+      });
+
+      // The stale pre-run snapshot must not clobber the in-flight conversation.
+      expect(result.current.dbMessagesMap[key]).toEqual(liveMessages);
     });
   });
 

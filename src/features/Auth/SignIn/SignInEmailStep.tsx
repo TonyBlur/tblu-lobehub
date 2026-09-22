@@ -1,6 +1,6 @@
 import { BRANDING_NAME } from '@lobechat/business-const';
-import { Alert, Flexbox, Icon, Input, Text } from '@lobehub/ui';
-import { Button } from '@lobehub/ui/base-ui';
+import { Flexbox, Icon, Input } from '@lobehub/ui';
+import { Alert, Button, Text } from '@lobehub/ui/base-ui';
 import { type FormInstance, type InputRef } from 'antd';
 import { Badge, Divider, Form } from 'antd';
 import { createStaticStyles } from 'antd-style';
@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 
 import AuthIcons from '@/components/AuthIcons';
 import AuthCard from '@/features/AuthCard';
-import { AuthAgreement, useAuthAgreement } from '@/features/AuthShell';
+import AuthAgreement, { useAuthAgreement } from '@/features/AuthShell/AuthAgreement';
 
 const styles = createStaticStyles(({ css, cssVar }) => ({
   inlineLink: css`
@@ -49,6 +49,7 @@ export interface SignInEmailStepProps {
   onSetPassword: () => void;
   onSocialSignIn: (provider: string) => void;
   serverConfigInit: boolean;
+  sessionExpired?: boolean;
   socialLoading: string | null;
 }
 
@@ -60,6 +61,7 @@ export const SignInEmailStep = ({
   loading,
   oAuthSSOProviders,
   serverConfigInit,
+  sessionExpired,
   socialLoading,
   onCheckUser,
   onGoToSignup,
@@ -96,6 +98,15 @@ export const SignInEmailStep = ({
 
   return (
     <AuthCard title={t('signin.subtitle', { appName: BRANDING_NAME })}>
+      {sessionExpired && (
+        <Alert
+          showIcon
+          message={t('betterAuth.signin.sessionExpired')}
+          style={{ marginBlockEnd: 12 }}
+          type="warning"
+          variant="filled"
+        />
+      )}
       {serverConfigInit && oAuthSSOProviders.length > 0 && (
         <Flexbox gap={12}>
           {oAuthSSOProviders.map((provider) => {

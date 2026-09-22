@@ -83,6 +83,12 @@ export default {
   'compare.title': 'Plan Comparison',
   'creditUsageReminder.title':
     '{{percent}} of the subscription credits included in this billing cycle have been used',
+  'creditsChip.available': 'available',
+  'creditsChip.balance': 'Balance {{amount}}',
+  'creditsChip.percent': '{{percent}}%',
+  'creditsChip.title': 'Credits Left',
+  'creditsChip.tooltip': 'Credits left in the current billing cycle',
+  'creditsChip.viewUsage': 'View Usage',
   'compareAllPlans': 'View All Plans',
   'comparePlans': 'View Plans',
   'createSubscriptionError': 'Failed to create subscription',
@@ -183,6 +189,8 @@ export default {
     'Members without a custom rule use this limit each billing cycle.',
   'credits.memberBudget.desc':
     'Limit how many workspace credits each member can use in the current billing cycle',
+  'credits.memberBudget.details.action': 'View details',
+  'credits.memberBudget.details.title': 'Member usage',
   'credits.memberBudget.effectiveBudget': 'Effective budget',
   'credits.memberBudget.empty': 'No workspace members yet',
   'credits.memberBudget.globalBadge': 'Global',
@@ -199,7 +207,7 @@ export default {
   'credits.memberBudget.status.inherit': 'Inherits default',
   'credits.memberBudget.status.unlimited': 'Unlimited',
   'credits.memberBudget.target.allMembers': 'All members',
-  'credits.memberBudget.title': 'Budget',
+  'credits.memberBudget.title': 'Member Budget Control',
   'credits.memberBudget.unlimited': 'Unlimited',
   'credits.memberBudget.upgradeCta': 'View plans',
   'credits.memberBudget.userPanel.exhaustedDesc':
@@ -248,12 +256,17 @@ export default {
   'credits.packages.title': 'My Credit Packages',
   'credits.topUp.cancel': 'Cancel',
   'credits.topUp.custom': 'Custom',
+  'credits.topUp.customHint': 'Any amount from {{min}}M',
   'credits.topUp.freeFeeHint': 'Free plan top-ups include a {{fee}} service fee per 1M credits.',
   'credits.topUp.limitedOffer': '🔥 Limited',
   'credits.topUp.maxAmountError': 'Single purchase amount cannot exceed ${{max}}',
   'credits.topUp.originalPriceFormat': 'Original ${{price}}',
   'credits.topUp.purchaseError': 'Purchase failed, please try again later',
   'credits.topUp.purchaseNow': 'Purchase Now',
+  'credits.topUp.receipt.bonus': 'First top-up bonus',
+  'credits.topUp.receipt.bonusValue': '+{{quantity}}M free',
+  'credits.topUp.receipt.credits': '{{quantity}}M {{creditLabel}} × ${{price}}',
+  'credits.topUp.receipt.validity': 'Valid for',
   'credits.topUp.selectPackage': 'Select Package',
   'credits.topUp.subscribeFirst': 'Subscribe first',
   'credits.topUp.success.credits': '+{{quantity}} Credits',
@@ -272,10 +285,6 @@ export default {
   'credits.topUp.validityInfo': '{{months}} months validity',
   'header.desc': 'Usage and subscription management',
   'header.title': 'Billing',
-  'keyMissMatch.button': 'Restore usage and continue conversation',
-  'keyMissMatch.description':
-    'Due to an occasional system failure, your current subscription usage is temporarily inactive. Please click the button below to restore usage and continue the conversation. If this happens repeatedly, please contact us via email (support@lobehub.com)',
-  'keyMissMatch.title': 'Restore Subscription Usage Now',
   'limitation.chat.budgetReady.action': 'Continue Chatting',
   'limitation.chat.budgetReady.desc': 'Your available credits now cover this request.',
   'limitation.chat.budgetReady.title': 'Credits Ready',
@@ -398,6 +407,9 @@ export default {
   'payDiffPrice': 'Pay Difference',
   'payDiffPriceApprox': 'Approx.',
   'payDiffPriceTip': 'Actual amount subject to payment page',
+  'payment.downgradeFailed.desc':
+    'Failed to schedule your downgrade. Please try again later, or contact us via email if the problem persists',
+  'payment.downgradeFailed.title': 'Downgrade Failed',
   'payment.error.actions.billing': 'Billing Management',
   'payment.error.actions.home': 'Back to Home',
   'payment.error.desc':
@@ -424,7 +436,6 @@ export default {
   'plans.btn.noAction': 'Plan Locked',
   'plans.btn.payment': 'Purchase',
   'plans.btn.paymentDesc': 'Supports credit card / Alipay / WeChat Pay',
-  'plans.btn.paymentDescForZarinpal': 'Supports credit card',
   'plans.btn.soon': 'Coming Soon',
   'plans.changePlan': 'Choose Plan',
   'plans.cloud.history': 'Unlimited conversation history',
@@ -449,12 +460,16 @@ export default {
   'plans.cancelDowngrade': 'Cancel Scheduled Downgrade',
   'plans.cancelDowngradeSuccess': 'Scheduled downgrade has been cancelled',
   'plans.restoreSubscription': 'Restore Subscription',
+  'plans.restoreSubscriptionError': 'Could not restore your subscription',
   'plans.restoreSubscriptionSuccess': 'Subscription has been restored',
   'plans.pendingDowngrade': 'Pending Downgrade',
   'plans.embeddingStorage.embeddings': 'entries',
   'plans.embeddingStorage.title': 'Vector Storage',
   'plans.embeddingStorage.tooltip':
     'One document page (1000-1500 characters) generates approximately 1 vector entry. (Estimated using OpenAI Embeddings, may vary by model)',
+  'plans.artifactHosting.deployments': 'Up to {{count}} active Artifact sites',
+  'plans.artifactHosting.siteSize': 'Up to {{size}} per published site',
+  'plans.artifactHosting.title': 'Artifact Hosting',
   'plans.features.agents': 'Curated Agent Market',
   'plans.features.ceAgents': 'Community Agent Market',
   'plans.features.cePlugins': 'Community Plugin Market',
@@ -542,8 +557,8 @@ export default {
   'plans.target': 'Target Plan',
   'plans.unlimited': 'Unlimited',
   'plansModal.artifactDeploymentLimit.desc':
-    'Your public Artifact deployment limit has been reached. Upgrade your plan to publish more projects.',
-  'plansModal.artifactDeploymentLimit.title': 'Publish more Artifacts',
+    'Your Artifact hosting capacity has been reached. Upgrade to increase active deployments and per-site size limits.',
+  'plansModal.artifactDeploymentLimit.title': 'Increase Artifact hosting capacity',
   'plansModal.creditLimit.desc':
     'Upgrade your plan to unlock more monthly credits and keep working without interruption.',
   'plansModal.creditLimit.title': 'You’re out of credits',
@@ -552,6 +567,9 @@ export default {
   'plansModal.fileStorageLimit.desc':
     'Your file storage is full. Upgrade to keep uploading, or delete unused files on the <1>Resources page</1> to free up space.',
   'plansModal.fileStorageLimit.title': 'Storage limit reached',
+  'plansModal.messengerWechat.desc':
+    'The WeChat System Bot is available on paid personal plans. Upgrade to connect and use it.',
+  'plansModal.messengerWechat.title': 'Connect WeChat after upgrading',
   'plansModal.modelAccess.desc':
     'This model is available on paid plans. Upgrade to use the full model lineup.',
   'plansModal.modelAccess.title': 'Unlock all models',
@@ -736,11 +754,4 @@ export default {
   'usage.storage.embeddings.used': 'Vector Storage',
   'usage.storage.file.used': 'File Usage',
   'usage.remaining': 'Remaining',
-  'zarinpal.infoModal.desc':
-    'Due to policy requirements, please complete the following personal information before placing an order:',
-  'zarinpal.infoModal.phone.label': 'Phone Number',
-  'zarinpal.infoModal.phone.placeholder': 'Please enter phone number',
-  'zarinpal.infoModal.phone.rule': 'Please enter a valid phone number',
-  'zarinpal.infoModal.submit': 'Purchase',
-  'zarinpal.infoModal.title': 'Fill in Required Information',
 };

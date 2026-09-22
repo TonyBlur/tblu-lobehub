@@ -1,5 +1,7 @@
 import { AGENT_CHAT_TOPIC_URL } from '@lobechat/const';
-import { Avatar, Flexbox, Text } from '@lobehub/ui';
+import { agentDisplayName } from '@lobechat/types';
+import { Flexbox } from '@lobehub/ui';
+import { Avatar, Text } from '@lobehub/ui/base-ui';
 import { createStaticStyles } from 'antd-style';
 import { memo, type ReactNode } from 'react';
 
@@ -52,7 +54,7 @@ const TopicRow = memo<TopicRowProps>(({ topic, leading, trailing }) => {
           shape={'circle'}
           size={22}
           style={{ flex: 'none' }}
-          title={agent.title}
+          title={agentDisplayName(agent)}
         />
       )}
       <Flexbox horizontal align={'center'} flex={1} gap={6} style={{ minWidth: 0 }}>

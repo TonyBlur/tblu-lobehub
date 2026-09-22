@@ -1,9 +1,17 @@
 'use client';
 
 import { AGENT_PROFILE_URL, DEFAULT_INBOX_AVATAR, INBOX_SESSION_ID } from '@lobechat/const';
-import { Accordion, AccordionItem, ActionIcon, Avatar, Flexbox, Text } from '@lobehub/ui';
-import { Select, useModalContext } from '@lobehub/ui/base-ui';
-import { App, Form, Input, InputNumber, Space } from 'antd';
+import { Flexbox } from '@lobehub/ui';
+import {
+  Accordion,
+  ActionIcon,
+  Avatar,
+  Select,
+  Text,
+  toast,
+  useModalContext,
+} from '@lobehub/ui/base-ui';
+import { Form, Input, InputNumber, Space } from 'antd';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { SquareArrowOutUpRight } from 'lucide-react';
 import { type FC, useCallback, useEffect, useMemo, useState } from 'react';
@@ -81,7 +89,7 @@ const RunCreateContent: FC<RunCreateContentProps> = ({
 }) => {
   const { t } = useTranslation('eval');
   const { t: tChat } = useTranslation('chat');
-  const { message } = App.useApp();
+
   const { close } = useModalContext();
   const navigate = useWorkspaceAwareNavigate();
   const activeWorkspaceSlug = useActiveWorkspaceSlug();
@@ -186,14 +194,14 @@ const RunCreateContent: FC<RunCreateContentProps> = ({
           } catch {
             // Run was created — surface the start failure (ux Act) but keep
             // going to the run page so the user can retry there.
-            message.error(t('run.error.start'));
+            toast.error(t('run.error.start'));
           }
           navigate(`/eval/bench/${benchmarkId}/runs/${run.id}`);
         }
         close();
       } catch (error) {
         // createRun failure: toast and keep the modal open for retry (ux Act).
-        message.error(
+        toast.error(
           error instanceof Error && error.message ? error.message : t('run.create.error'),
         );
       } finally {
@@ -208,7 +216,6 @@ const RunCreateContent: FC<RunCreateContentProps> = ({
       experimentId,
       form,
       isDatasetMode,
-      message,
       navigate,
       onLoadingChange,
       startRun,
@@ -302,55 +309,68 @@ const RunCreateContent: FC<RunCreateContentProps> = ({
         </Form.Item>
       )}
 
-      <Accordion defaultExpandedKeys={[]}>
-        <AccordionItem
-          itemKey="advanced"
-          paddingBlock={8}
-          paddingInline={4}
-          title={t('run.create.advanced')}
-        >
-          <Flexbox gap={16} style={{ paddingTop: 8 }}>
-            <Form.Item
-              extra={<span className={styles.hint}>{t('run.config.k.hint', { k: kValue })}</span>}
-              initialValue={1}
-              label={t('run.config.k')}
-              name="k"
-              style={{ marginBottom: 0 }}
-            >
-              <InputNumber max={10} min={1} step={1} style={{ width: '100%' }} variant="filled" />
-            </Form.Item>
-            <Form.Item
-              extra={<span className={styles.hint}>{t('run.config.maxSteps.hint')}</span>}
-              initialValue={DEFAULT_MAX_STEPS}
-              label={t('run.config.maxSteps')}
-              name="maxSteps"
-              style={{ marginBottom: 0 }}
-            >
-              <InputNumber
-                max={1000}
-                min={1}
-                step={10}
-                style={{ width: '100%' }}
-                variant="filled"
-              />
-            </Form.Item>
-            <Form.Item
-              initialValue={DEFAULT_TIMEOUT_MINUTES}
-              label={t('run.config.timeout')}
-              name="timeoutMinutes"
-              style={{ marginBottom: 0 }}
-            >
-              <InputNumber
-                max={MAX_TIMEOUT_MINUTES}
-                min={1}
-                style={{ width: '100%' }}
-                suffix={t('run.config.timeout.unit')}
-                variant="filled"
-              />
-            </Form.Item>
-          </Flexbox>
-        </AccordionItem>
-      </Accordion>
+      <Accordion
+        keepMounted
+        defaultValue={[]}
+        indicatorPlacement="inline"
+        styles={{ header: { paddingBlock: 8, paddingInline: 4 } }}
+        items={[
+          {
+            children: (
+              <Flexbox gap={16} style={{ paddingTop: 8 }}>
+                <Form.Item
+                  initialValue={1}
+                  label={t('run.config.k')}
+                  name="k"
+                  style={{ marginBottom: 0 }}
+                  extra={
+                    <span className={styles.hint}>{t('run.config.k.hint', { k: kValue })}</span>
+                  }
+                >
+                  <InputNumber
+                    max={10}
+                    min={1}
+                    step={1}
+                    style={{ width: '100%' }}
+                    variant="filled"
+                  />
+                </Form.Item>
+                <Form.Item
+                  extra={<span className={styles.hint}>{t('run.config.maxSteps.hint')}</span>}
+                  initialValue={DEFAULT_MAX_STEPS}
+                  label={t('run.config.maxSteps')}
+                  name="maxSteps"
+                  style={{ marginBottom: 0 }}
+                >
+                  <InputNumber
+                    max={1000}
+                    min={1}
+                    step={10}
+                    style={{ width: '100%' }}
+                    variant="filled"
+                  />
+                </Form.Item>
+                <Form.Item
+                  initialValue={DEFAULT_TIMEOUT_MINUTES}
+                  label={t('run.config.timeout')}
+                  name="timeoutMinutes"
+                  style={{ marginBottom: 0 }}
+                >
+                  <InputNumber
+                    max={MAX_TIMEOUT_MINUTES}
+                    min={1}
+                    style={{ width: '100%' }}
+                    suffix={t('run.config.timeout.unit')}
+                    variant="filled"
+                  />
+                </Form.Item>
+              </Flexbox>
+            ),
+            key: 'advanced',
+            title: t('run.create.advanced'),
+          },
+        ]}
+      />
     </Form>
   );
 };

@@ -1,16 +1,19 @@
 import {
+  Activity,
   AppWindow,
   ArrowUpDown,
   Bot,
   Cpu,
   Flag,
   Gauge,
+  Gpu,
   GraduationCap,
   Languages,
   LayoutGrid,
   MemoryStick,
   RotateCw,
   Route,
+  Ruler,
   ScanEye,
   Terminal,
 } from 'lucide-react';
@@ -76,6 +79,15 @@ export const registerBuiltinDevDockItems = () => {
     },
     {
       defaultPinned: true,
+      icon: Activity,
+      id: 'cls',
+      label: 'CLS',
+      load: () => import('./widgets/ClsWidget'),
+      slot: 'right',
+      type: 'readout',
+    },
+    {
+      defaultPinned: true,
       icon: MemoryStick,
       id: 'memory',
       label: 'Memory',
@@ -102,6 +114,15 @@ export const registerBuiltinDevDockItems = () => {
           slot: 'right',
           type: 'readout',
         },
+    {
+      getChecked: () => useDevDockStore.getState().mesurer,
+      icon: Ruler,
+      id: 'mesurer',
+      label: 'Mesurer',
+      onToggle: (checked) => useDevDockStore.getState().setMesurer(checked),
+      subscribe: subscribeDevDock,
+      type: 'toggle',
+    },
     {
       getChecked: () => useDevDockStore.getState().reactScan,
       icon: ScanEye,
@@ -156,6 +177,22 @@ export const registerBuiltinDevDockItems = () => {
 
   if (isDesktop) {
     items.push(
+      {
+        defaultPinned: true,
+        icon: Gpu,
+        id: 'gpu-process',
+        label: 'GPU proc',
+        load: () => import('./widgets/GpuProcessWidget'),
+        slot: 'right',
+        type: 'readout',
+      },
+      {
+        icon: Gpu,
+        id: 'gpu-status',
+        label: 'GPU Status',
+        load: () => import('@/features/DevPanel/GpuStatus'),
+        type: 'panel',
+      },
       {
         defaultPinned: true,
         icon: AppWindow,

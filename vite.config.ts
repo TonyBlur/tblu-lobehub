@@ -7,6 +7,7 @@ import type { PluginOption, ViteDevServer } from 'vite';
 import { defineConfig, loadEnv } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+import { customBrandingLoadingScreen } from './plugins/vite/customBrandingLoadingScreen';
 import { viteEnvRestartKeys } from './plugins/vite/envRestartKeys';
 import {
   createSharedRolldownOutput,
@@ -14,6 +15,7 @@ import {
   sharedOptimizeDeps,
   sharedPwaGlobIgnores,
   sharedPwaRuntimeCaching,
+  sharedRendererDedupe,
   sharedRendererDefine,
   sharedRendererPlugins,
 } from './plugins/vite/sharedRendererConfig';
@@ -117,18 +119,41 @@ export default defineConfig({
         isAuth ? 'index.auth.html' : isMobile ? 'index.mobile.html' : 'index.html',
       ),
       output: createSharedRolldownOutput({ strictExecutionOrder: true }),
+      preserveEntrySignatures: 'allow-extension',
     },
   },
-  define: sharedRendererDefine({ isMobile, isElectron: false }),
+  define: {
+    ...sharedRendererDefine({ isMobile, isElectron: false }),
+  },
   experimental: {
     bundledDev: false,
   },
   resolve: {
+    dedupe: sharedRendererDedupe,
     tsconfigPaths: true,
   },
   optimizeDeps: sharedOptimizeDeps,
   plugins: [
+    isMobile &&
+      isDev && {
+        name: 'mobile-runtime-html-dev-entry',
+        enforce: 'pre' as const,
+        configureServer(server: ViteDevServer) {
+          server.middlewares.use((req, _res, next) => {
+            const raw = req.url;
+            if (!raw) return next();
+            const q = raw.indexOf('?');
+            const pathOnly = q === -1 ? raw : raw.slice(0, q);
+            const search = q === -1 ? '' : raw.slice(q);
+            if (pathOnly === '/' || pathOnly === '/index.html') {
+              req.url = `/index.mobile.html${search}`;
+            }
+            next();
+          });
+        },
+      },
     vercelSkewProtection(),
+    customBrandingLoadingScreen(),
     viteEnvRestartKeys(['APP_URL']),
     enableViteDevTools &&
       DevTools({

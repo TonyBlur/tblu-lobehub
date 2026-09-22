@@ -1,4 +1,5 @@
-import { ActionIcon, Flexbox } from '@lobehub/ui';
+import { Flexbox } from '@lobehub/ui';
+import { ActionIcon } from '@lobehub/ui/base-ui';
 import { PlusIcon } from 'lucide-react';
 import { memo, type ReactNode, useMemo } from 'react';
 
@@ -16,7 +17,7 @@ import { HOME_INPUT_BODY_HEIGHT } from './constants';
 import ModeSelect from './ModeSelect';
 
 const leftActions: ActionKeys[] = ['plus'];
-const rightActions: ActionKeys[] = ['modelLabel'];
+const rightActions: ActionKeys[] = ['model'];
 
 const CONTAINER_RADIUS = 20;
 /** Clearance from the container edge to the round controls sitting in its corners. */
@@ -24,6 +25,7 @@ const ACTION_BAR_INSET = 8;
 
 export interface HomeEditorInputProps {
   agentId?: string;
+  contextSelectionKey: string;
   initialValue: string;
   isAgentConfigLoading: boolean;
   loading: boolean;
@@ -37,6 +39,7 @@ export interface HomeEditorInputProps {
 const HomeEditorInput = memo<HomeEditorInputProps>(
   ({
     agentId,
+    contextSelectionKey,
     initialValue,
     isAgentConfigLoading,
     loading,
@@ -70,6 +73,7 @@ const HomeEditorInput = memo<HomeEditorInputProps>(
       <ChatInputProvider
         agentId={agentId}
         allowExpand={false}
+        contextSelectionKey={contextSelectionKey}
         leftActions={leftActions}
         rightActions={rightActions}
         slashPlacement="bottom"

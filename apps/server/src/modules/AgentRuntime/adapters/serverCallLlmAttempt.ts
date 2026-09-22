@@ -5,6 +5,7 @@ import type {
   ChatStreamPayload,
   ContentPartData,
   ModelRuntime,
+  ModelRuntimeDiagnostics,
   OnFinishData,
 } from '@lobechat/model-runtime';
 import {
@@ -14,6 +15,7 @@ import {
   ModelRefusalError,
 } from '@lobechat/model-runtime';
 import type {
+  AgentShareVisitorIds,
   ChatImageItem,
   ChatToolPayload,
   GroundingSearch,
@@ -22,6 +24,7 @@ import type {
   ModelReasoning,
   ModelUsage,
 } from '@lobechat/types';
+import { AgentRuntimeErrorType, ChatErrorType } from '@lobechat/types';
 import { pickString, toRecord } from '@lobechat/utils/object';
 
 import type { ModelCompletionFailureReason } from '@/business/server/recordModelCompletionFailure';
@@ -36,6 +39,13 @@ import {
 import type { ServerCallLlmTooling } from './serverCallLlmTooling';
 
 interface CreateServerCallLlmAttemptInput {
+  /**
+   * Shared-agent attribution for a visitor run. The call is billed to the
+   * share's CREATOR, so without this the spend row is indistinguishable from
+   * the creator's own usage. Only ids — never the share's tool/memory grants;
+   * the caller projects with `toAgentShareVisitorIds`.
+   */
+  agentShareVisitorIds?: AgentShareVisitorIds;
   attempt: number;
   blobStore?: BlobStore;
   chatPayload: ChatStreamPayload;
@@ -57,9 +67,41 @@ interface CreateServerCallLlmAttemptInput {
   userAgent?: string;
 }
 
-const createStreamExecutionError = (errorData: unknown) => {
+/**
+ * Codes a stream `error` payload may legitimately carry in its `type` field.
+ *
+ * Stream error data is untyped: providers pass their own vocabulary through
+ * (`api_error`, `invalid_request_error`, the bare string `error`, …), so `type`
+ * is only promoted to a classification when it names a code we actually own.
+ */
+const KNOWN_ERROR_CODES = new Set<string>([
+  ...Object.values(AgentRuntimeErrorType),
+  ...Object.values(ChatErrorType).map(String),
+]);
+
+/**
+ * Wrap a stream `error` event payload into a throwable Error.
+ *
+ * Stream sources emit two shapes. A flat one carries `message` at the top
+ * level; the classified one — what provider stream transformers produce for
+ * terminal policy rejections — nests the human text under `body` and puts the
+ * code in `type`:
+ *
+ * ```ts
+ * { body: { context: {…}, message: 'The content was blocked (SAFETY)…' }, type: 'ProviderContentPolicyViolation' }
+ * ```
+ *
+ * Both halves of that shape used to be dropped. `message` was read only from
+ * the top level, so the entire payload was `JSON.stringify`-ed into the text,
+ * and the code was copied onto the Error as `type` — which `formatErrorForState`
+ * does not read (it keys off `errorType`, and its `type`-only path deliberately
+ * excludes Error instances). A classified provider rejection therefore landed as
+ * an opaque bare 500 carrying a JSON blob for a message.
+ */
+export const createStreamExecutionError = (errorData: unknown) => {
   const errorRecord = toRecord(errorData);
-  const message = pickString(errorRecord?.message);
+  const body = toRecord(errorRecord?.body);
+  const message = pickString(errorRecord?.message) ?? pickString(body?.message);
   const error = new Error(
     message ? `LLM stream error: ${message}` : `LLM stream error: ${JSON.stringify(errorData)}`,
   );
@@ -67,6 +109,19 @@ const createStreamExecutionError = (errorData: unknown) => {
   if (errorRecord) {
     const { message: _message, ...details } = errorRecord;
     Object.assign(error, details);
+
+    // Surface the classification under the key the error formatter reads, so a
+    // typed stream rejection keeps its code instead of collapsing into a 500.
+    const errorType = pickString(errorRecord.errorType) ?? pickString(errorRecord.type);
+    if (errorType && KNOWN_ERROR_CODES.has(errorType)) {
+      // Hand the payload's `body` over as `_responseBody` in the same step.
+      // `formatErrorForState` builds the display body from
+      // `_responseBody ?? error ?? <the thrown value>`; without this it would
+      // fall through to the Error itself and emit `body: { body: {…}, type,
+      // errorType }`, pushing `provider` / `context` one level below the
+      // `ChatMessageError.body` contract that the renderers read.
+      Object.assign(error, { errorType, ...(body ? { _responseBody: body } : {}) });
+    }
   }
 
   return error;
@@ -77,7 +132,6 @@ export class ServerCallLlmAttempt {
   private readonly attempt: number;
   private readonly base64ImageEvents: Base64ImageData[] = [];
   private readonly chatPayload: ChatStreamPayload;
-  private readonly clientIp?: string;
   private completion?: OnFinishData;
   private readonly contentPartEvents: ContentPartData[] = [];
   private readonly ctx: RuntimeExecutorContext;
@@ -94,6 +148,8 @@ export class ServerCallLlmAttempt {
   private reasoning?: ModelReasoning;
   private readonly reasoningPartEvents: ContentPartData[] = [];
   private readonly resolved: ServerCallLlmTooling['resolved'];
+  private readonly runtimeDiagnostics: ModelRuntimeDiagnostics = {};
+  private readonly runtimeMetadata: Record<string, unknown>;
   private speed?: ModelPerformance;
   private readonly streamSink: ServerCallLlmStreamSink;
   private streamError?: unknown;
@@ -101,10 +157,10 @@ export class ServerCallLlmAttempt {
   private toolsCalling: ChatToolPayload[] = [];
   private readonly topicId?: string;
   private readonly trigger?: unknown;
-  private readonly userAgent?: string;
   private usage?: ModelUsage;
 
   constructor({
+    agentShareVisitorIds,
     attempt,
     blobStore,
     chatPayload,
@@ -125,7 +181,6 @@ export class ServerCallLlmAttempt {
   }: CreateServerCallLlmAttemptInput) {
     this.attempt = attempt;
     this.chatPayload = chatPayload;
-    this.clientIp = clientIp;
     this.ctx = ctx;
     this.maxAttempts = maxAttempts;
     this.messageCount = messageCount;
@@ -135,6 +190,14 @@ export class ServerCallLlmAttempt {
     this.operationLogId = operationLogId;
     this.provider = provider;
     this.resolved = resolved;
+    this.runtimeMetadata = {
+      agentShare: agentShareVisitorIds,
+      clientIp,
+      operationId: ctx.operationId,
+      topicId,
+      trigger,
+      userAgent,
+    };
     this.streamSink = createServerCallLlmStreamSink({
       blobStore,
       ctx,
@@ -143,10 +206,30 @@ export class ServerCallLlmAttempt {
     });
     this.topicId = topicId;
     this.trigger = trigger;
-    this.userAgent = userAgent;
   }
 
   async execute(): Promise<void> {
+    try {
+      await this.executeModelCall();
+    } catch (error) {
+      const isAlreadyRecorded =
+        error instanceof ModelEmptyError || error instanceof ModelRefusalError;
+      const isAborted = this.runtimeDiagnostics.providerResponse?.aborted;
+      if (!isAlreadyRecorded && !isAborted && !(await isOperationInterrupted(this.ctx))) {
+        const receivedProviderOutput =
+          this.streamError !== undefined ||
+          this.runtimeDiagnostics.providerResponse?.firstEventAt !== undefined;
+        await this.recordCompletionFailure(
+          receivedProviderOutput ? 'stream_error' : 'provider_error',
+          error,
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  private async executeModelCall(): Promise<void> {
     log(
       '[%s][call_llm] calling model-runtime chat (attempt %d/%d, model: %s, messages: %d, tools: %d)',
       this.operationLogId,
@@ -237,23 +320,16 @@ export class ServerCallLlmAttempt {
           this.toolCalls = raw;
 
           await this.streamSink.flushTextBuffer();
-          await this.ctx.streamManager.publishStreamChunk(
-            this.ctx.operationId,
-            this.ctx.stepIndex,
-            {
-              chunkType: 'tools_calling',
-              toolsCalling: payload,
-            },
-          );
+          // Throttled, not published per delta: providers stream tool arguments
+          // token by token and each callback carries the full accumulated call
+          // list, so publishing every one floods Redis and the Gateway with
+          // ever-growing duplicate payloads. The sink coalesces them and always
+          // ships the final snapshot.
+          this.streamSink.queueToolsCalling(payload);
         },
       },
-      metadata: {
-        clientIp: this.clientIp,
-        operationId: this.ctx.operationId,
-        topicId: this.topicId,
-        trigger: this.trigger,
-        userAgent: this.userAgent,
-      },
+      diagnostics: this.runtimeDiagnostics,
+      metadata: this.runtimeMetadata,
       user: this.ctx.userId,
     });
 
@@ -263,6 +339,10 @@ export class ServerCallLlmAttempt {
 
     await this.streamSink.flushTextBuffer();
     await this.streamSink.flushReasoningBuffer();
+    // Ships the final tool-call snapshot before the step's tool lifecycle events
+    // go out, so the client has the complete `tools` array by the time the first
+    // `tool_start` addresses it.
+    await this.streamSink.flushToolsCallingBuffer();
     this.streamSink.clearBuffers();
     await this.streamSink.waitForImageUploads();
 
@@ -363,8 +443,18 @@ export class ServerCallLlmAttempt {
     return this.imageList.length + contentPartImageCount;
   }
 
-  private async recordCompletionFailure(reason: ModelCompletionFailureReason) {
+  private async recordCompletionFailure(reason: ModelCompletionFailureReason, error?: unknown) {
     try {
+      const providerEvidence =
+        this.runtimeDiagnostics.providerRequest || this.runtimeDiagnostics.providerResponse
+          ? this.runtimeDiagnostics
+          : undefined;
+      const routeEvidence = this.runtimeMetadata.routeAttempt;
+      const runtimeEvidence =
+        providerEvidence === undefined && routeEvidence === undefined
+          ? undefined
+          : { provider: providerEvidence, route: routeEvidence };
+
       await recordModelCompletionFailure({
         attempt: this.attempt,
         maxAttempts: this.maxAttempts,
@@ -378,9 +468,19 @@ export class ServerCallLlmAttempt {
           base64ImageEvents: [...this.base64ImageEvents],
           completion: this.completion,
           contentPartEvents: [...this.contentPartEvents],
+          ...(error === undefined
+            ? {}
+            : {
+                error:
+                  error instanceof Error
+                    ? { message: error.message.slice(0, 500), name: error.name }
+                    : { message: String(error).slice(0, 500) },
+              }),
           output: this.snapshot(),
           reasoningPartEvents: [...this.reasoningPartEvents],
+          ...(this.streamError === undefined ? {} : { streamError: this.streamError }),
         },
+        ...(runtimeEvidence ? { runtime: runtimeEvidence } : {}),
         stepIndex: this.ctx.stepIndex,
         topicId: this.topicId,
         trigger: this.trigger,

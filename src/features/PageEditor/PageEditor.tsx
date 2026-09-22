@@ -7,6 +7,7 @@ import type { CSSProperties, FC, ReactNode, UIEvent } from 'react';
 import { memo, useCallback, useEffect, useRef } from 'react';
 
 import { CONVERSATION_MIN_WIDTH } from '@/const/layoutTokens';
+import type { ComposerTarget } from '@/features/Conversation/types';
 import DiffAllToolbar from '@/features/EditorCanvas/DiffAllToolbar';
 import PageMetaBar from '@/features/PageEditor/PageMetaBar';
 import WideScreenContainer from '@/features/WideScreenContainer';
@@ -17,6 +18,12 @@ import { systemStatusSelectors } from '@/store/global/selectors';
 import { usePageStore } from '@/store/page';
 import { StyleSheet } from '@/utils/styles';
 
+import DocumentComments from './DocumentComments';
+import BlockCommentMarker from './DocumentComments/BlockCommentMarker';
+import { DocumentCommentsProvider } from './DocumentComments/context';
+import DocumentCommentsPanel from './DocumentComments/Gutter';
+import { GUTTER_COLUMN_ATTRIBUTE } from './DocumentComments/Gutter/useGutterLayout';
+import DocumentLikes from './DocumentLikes';
 import EditorCanvas from './EditorCanvas';
 import Header from './Header';
 import LockedAlert from './LockedAlert';
@@ -99,6 +106,8 @@ const overrideStyles = createStaticStyles(({ css }) => ({
 }));
 
 interface PageEditorProps {
+  /** Composer that receives selections created by the Ask Copilot toolbar item. */
+  askCopilotTarget?: ComposerTarget;
   emoji?: string;
   /**
    * When true, the header spans the full editor width above the body and the
@@ -138,12 +147,14 @@ interface PageEditorProps {
 }
 
 interface PageEditorCanvasProps {
+  askCopilotTarget?: ComposerTarget;
   fullWidthHeader?: boolean;
   header?: PageEditorHeader;
   rightPanel?: boolean;
 }
 
-const PageEditorCanvas = memo<PageEditorCanvasProps>(({ header, fullWidthHeader, rightPanel }) => {
+const PageEditorCanvas = memo<PageEditorCanvasProps>((props) => {
+  const { askCopilotTarget, header, fullWidthHeader, rightPanel } = props;
   const showRightPanel = rightPanel !== false;
   const editable = usePageEditable();
   const editor = usePageEditorStore((s) => s.editor);
@@ -163,6 +174,7 @@ const PageEditorCanvas = memo<PageEditorCanvasProps>(({ header, fullWidthHeader,
   const lastEditorScrollTopRef = useRef(0);
   const editorPaneRef = useRef<HTMLDivElement>(null);
   const contentWrapperRef = useRef<HTMLDivElement>(null);
+  const editorContentRef = useRef<HTMLDivElement>(null);
 
   const isUserInteractingWithEditor = useCallback(() => {
     if (isPointerInsideEditorPaneRef.current) return true;
@@ -300,7 +312,13 @@ const PageEditorCanvas = memo<PageEditorCanvasProps>(({ header, fullWidthHeader,
             editor?.focus();
           }}
         >
-          <Flexbox className={overrideStyles.editorContent} flex={1} style={editorContentStyle}>
+          <Flexbox
+            className={overrideStyles.editorContent}
+            flex={1}
+            ref={editorContentRef}
+            style={editorContentStyle}
+            {...{ [GUTTER_COLUMN_ATTRIBUTE]: true }}
+          >
             <TitleSection />
             <PageMetaBar />
             {/* Surfaces local heartbeat health (unstable/lost) for the holder.
@@ -309,7 +327,10 @@ const PageEditorCanvas = memo<PageEditorCanvasProps>(({ header, fullWidthHeader,
             {/* Prominent in-body notice when another member holds the lock; the
                 compact status badge lives in the Header (EditingIndicator). */}
             <LockedAlert />
-            <EditorCanvas />
+            <EditorCanvas askCopilotTarget={askCopilotTarget} />
+            <BlockCommentMarker hostRef={editorContentRef} />
+            {documentId && <DocumentLikes documentId={documentId} key={documentId} />}
+            <DocumentComments />
           </Flexbox>
         </WideScreenContainer>
       </Flexbox>
@@ -317,19 +338,33 @@ const PageEditorCanvas = memo<PageEditorCanvasProps>(({ header, fullWidthHeader,
     </Flexbox>
   );
 
+  // Comment state is hosted above every surface that reads it: the header's
+  // toggle, the list below the body and the panel beside it share one set of
+  // caches, and the panel's cards follow the body pane's scroll.
+  const withComments = (node: ReactNode) => (
+    <DocumentCommentsProvider
+      documentId={documentId}
+      paneRef={contentWrapperRef}
+      panelAvailable={showRightPanel}
+    >
+      {node}
+    </DocumentCommentsProvider>
+  );
+
   if (fullWidthHeader) {
-    return (
+    return withComments(
       <Flexbox height={'100%'} style={{ backgroundColor: cssVar.colorBgContainer }} width={'100%'}>
         {headerSlot}
         <Flexbox horizontal flex={1} style={{ minHeight: 0 }} width={'100%'}>
           {editorPane}
+          {showRightPanel && <DocumentCommentsPanel />}
           {showRightPanel && <RightPanel />}
         </Flexbox>
-      </Flexbox>
+      </Flexbox>,
     );
   }
 
-  return (
+  return withComments(
     <Flexbox
       horizontal
       height={'100%'}
@@ -337,8 +372,9 @@ const PageEditorCanvas = memo<PageEditorCanvasProps>(({ header, fullWidthHeader,
       width={'100%'}
     >
       {editorPane}
+      {showRightPanel && <DocumentCommentsPanel />}
       {showRightPanel && <RightPanel />}
-    </Flexbox>
+    </Flexbox>,
   );
 });
 
@@ -348,6 +384,7 @@ const PageEditorCanvas = memo<PageEditorCanvasProps>(({ header, fullWidthHeader,
  * A reusable component. Should NOT depend on context.
  */
 export const PageEditor: FC<PageEditorProps> = ({
+  askCopilotTarget,
   pageId,
   header,
   fullWidthHeader,
@@ -399,6 +436,7 @@ export const PageEditor: FC<PageEditorProps> = ({
           }}
         >
           <PageEditorCanvas
+            askCopilotTarget={askCopilotTarget}
             fullWidthHeader={fullWidthHeader}
             header={header}
             rightPanel={rightPanel}

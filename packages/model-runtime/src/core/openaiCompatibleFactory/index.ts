@@ -5,14 +5,14 @@ import debug from 'debug';
 import type { AiFullModelCard, AiModelType } from 'model-bank';
 import { LOBE_DEFAULT_MODEL_LIST } from 'model-bank';
 import type { ClientOptions } from 'openai';
-import OpenAI from 'openai';
+import type OpenAI from 'openai';
 import type { Stream } from 'openai/streaming';
 
-import { ErrorClassifier } from '../../errors';
+import { ErrorClassifier, refineErrorCode } from '../../errors';
 import {
-  isGPT5ProResponsesModel,
+  isGPTProResponsesModel,
   isResponsesAPIModel,
-  supportsGPT5ResponsesReasoningEffortNone,
+  supportsGPTResponsesReasoningEffortNone,
 } from '../../providers/openai/modelId';
 import type {
   ASROptions,
@@ -73,11 +73,21 @@ import { convertOpenAIMessages, convertOpenAIResponseInputs } from '../contextBu
 import { resolveModelSamplingParameters } from '../parameterResolver';
 import type { OpenAIStreamOptions } from '../streams';
 import { OpenAIResponsesStream, OpenAIStream } from '../streams';
-import type { ChatPayloadForTransformStream } from '../streams/protocol';
+import { type ChatPayloadForTransformStream, readableFromAsyncIterable } from '../streams/protocol';
 import { convertOpenAIResponseUsage, convertOpenAIUsage } from '../usageConverters/openai';
+import { OpenAICompatibleClient } from './client';
 import { createOpenAICompatibleImage } from './createImage';
 import { createOpenAICompatibleVideo, pollOpenAICompatibleVideoStatus } from './createVideo';
 import { transformResponseAPIToStream, transformResponseToStream } from './nonStreamToStream';
+import {
+  initializeOpenAIDiagnostics,
+  observeOpenAIChatCompletionStream,
+  observeOpenAIResponsesStream,
+  recordOpenAIChatCompletionResponse,
+  recordOpenAIResponseMetadata,
+  recordOpenAIResponsesResponse,
+  resolveOpenAIResponseWithMetadata,
+} from './providerDiagnostics';
 
 export type { PollVideoStatusResult };
 export * from './createVideo';
@@ -155,12 +165,12 @@ const getGenerateObjectResponsesReasoningParams = ({
   reasoning_effort,
   thinking,
 }: GenerateObjectReasoningParams & { model: string }) => {
-  if (isGPT5ProResponsesModel(model)) {
+  if (isGPTProResponsesModel(model)) {
     return reasoning_effort && reasoning_effort !== 'max' ? { reasoning: { effort: 'high' } } : {};
   }
 
   if (thinking?.type === 'disabled') {
-    return supportsGPT5ResponsesReasoningEffortNone(model) ? { reasoning: { effort: 'none' } } : {};
+    return supportsGPTResponsesReasoningEffortNone(model) ? { reasoning: { effort: 'none' } } : {};
   }
 
   return reasoning_effort && reasoning_effort !== 'max'
@@ -232,6 +242,8 @@ export interface OpenAICompatibleFactoryOptions<T extends Record<string, any> = 
       data: OpenAI.ChatCompletion,
     ) => ReadableStream<OpenAI.ChatCompletionChunk>;
     noUserId?: boolean;
+    /** Convert internal audio_url parts to OpenAI input_audio (WAV/MP3 only). */
+    supportsAudioInput?: boolean;
     /**
      * If true, route chat requests to Responses API path directly
      */
@@ -376,7 +388,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       if (customClient?.createClient) {
         this.client = customClient.createClient(initOptions as any);
       } else {
-        this.client = new OpenAI(initOptions);
+        this.client = new OpenAICompatibleClient(initOptions);
       }
 
       this.baseURL = baseURL || this.client.baseURL;
@@ -699,7 +711,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           if (customClient?.createClient) {
             this.client = customClient.createClient(initOptions);
           } else {
-            this.client = new OpenAI(initOptions);
+            this.client = new OpenAICompatibleClient(initOptions);
           }
 
           this.baseURL = targetBaseURL;
@@ -717,11 +729,16 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           forceImageBase64: chatCompletion?.forceImageBase64,
           forceVideoBase64: chatCompletion?.forceVideoBase64,
           model: postPayload.model,
+          supportsAudioInput: chatCompletion?.supportsAudioInput,
           thoughtSignatureScope,
         });
         const includeUsageRequested = Boolean(postPayload.stream && !chatCompletion?.excludeUsage);
 
-        let response: Stream<OpenAI.Chat.Completions.ChatCompletionChunk>;
+        let response:
+          | OpenAI.ChatCompletion
+          | ReadableStream<OpenAI.Chat.Completions.ChatCompletionChunk>
+          | Stream<OpenAI.Chat.Completions.ChatCompletionChunk>;
+        let providerResponseDiagnostics;
 
         const streamOptions: OpenAIStreamOptions = {
           bizErrorTypeTransformer: chatCompletion?.handleStreamBizErrorType,
@@ -754,12 +771,21 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
               preferTemperature: true,
             }),
           };
+          const requestPayload = this.withMappedRequestModel(customRequestPayload, payload.model);
+          providerResponseDiagnostics = initializeOpenAIDiagnostics({
+            apiMode: 'chat_completions',
+            diagnostics: options?.diagnostics,
+            endpoint: desensitizeUrl(this.baseURL),
+            payload: requestPayload,
+            sentAt: Date.now(),
+          });
 
           response = customClient.createChatCompletionStream(
             this.client,
-            this.withMappedRequestModel(customRequestPayload, payload.model),
+            requestPayload,
             this,
           ) as any;
+          recordOpenAIResponseMetadata(providerResponseDiagnostics, {});
         } else {
           // Remove LobeHub-internal fields before sending to downstream API.
           // `preserveThinking` is only consumed by Qwen/Zhipu handlePayload (which runs above)
@@ -784,22 +810,56 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
             debugPayload(requestPayload);
           }
 
-          response = (await this.client.chat.completions.create(requestPayload, {
+          providerResponseDiagnostics = initializeOpenAIDiagnostics({
+            apiMode: 'chat_completions',
+            diagnostics: options?.diagnostics,
+            endpoint: desensitizeUrl(this.baseURL),
+            payload: requestPayload,
+            sentAt: Date.now(),
+          });
+          const responsePromise = this.client.chat.completions.create(requestPayload, {
             // https://github.com/lobehub/lobe-chat/pull/318
             headers: { Accept: '*/*', ...options?.requestHeaders },
             signal: options?.signal,
-          })) as unknown as Stream<OpenAI.Chat.Completions.ChatCompletionChunk>;
+          });
+          const responseWithMetadata = await resolveOpenAIResponseWithMetadata(responsePromise);
+          response = responseWithMetadata.data as
+            OpenAI.ChatCompletion | Stream<OpenAI.Chat.Completions.ChatCompletionChunk>;
+          recordOpenAIResponseMetadata(providerResponseDiagnostics, {
+            requestId: responseWithMetadata.request_id,
+            response: responseWithMetadata.response,
+          });
         }
 
         if (postPayload.stream) {
           log('processing streaming response');
-          const [prod, useForDebug] = response.tee();
+          let prod = response as
+            | ReadableStream<OpenAI.Chat.Completions.ChatCompletionChunk>
+            | Stream<OpenAI.Chat.Completions.ChatCompletionChunk>;
 
           if (debugParams?.chatCompletion?.()) {
+            const [productionStream, useForDebug] = prod.tee();
+            prod = productionStream;
             const useForDebugStream =
               useForDebug instanceof ReadableStream ? useForDebug : useForDebug.toReadableStream();
 
             debugStream(useForDebugStream).catch(console.error);
+          }
+
+          if (providerResponseDiagnostics) {
+            /** Observe provider-native chunks before the OpenAI protocol adapter transforms them. */
+            const observedStream = observeOpenAIChatCompletionStream(
+              prod,
+              providerResponseDiagnostics,
+              options?.signal,
+            );
+            prod =
+              observedStream instanceof ReadableStream
+                ? observedStream
+                : readableFromAsyncIterable(observedStream, {
+                    model: payload.model,
+                    provider: this.id,
+                  });
           }
 
           return StreamingResponse(
@@ -822,6 +882,12 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         if (debugParams?.chatCompletion?.()) {
           debugResponse(response);
         }
+
+        await recordOpenAIChatCompletionResponse(
+          providerResponseDiagnostics,
+          response as OpenAI.ChatCompletion,
+          options?.signal,
+        );
 
         if (responseMode === 'json') {
           log('returning JSON response mode');
@@ -1362,6 +1428,15 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
             });
           }
 
+          case 413: {
+            return AgentRuntimeError.chat({
+              endpoint: desensitizedEndpoint,
+              error: error as any,
+              errorType: AgentRuntimeErrorType.RequestBodyTooLarge,
+              provider: this.id,
+            });
+          }
+
           default: {
             break;
           }
@@ -1455,11 +1530,18 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         });
       }
 
+      const fallbackErrorType = RuntimeError || ErrorType.bizError;
+      const refinedErrorType = refineErrorCode({
+        errorType: String(fallbackErrorType),
+        message: typeof errorMsg === 'string' ? errorMsg : undefined,
+        provider: this.id,
+      });
+
       log('returning generic error');
       return AgentRuntimeError.chat({
         endpoint: desensitizedEndpoint,
         error: errorResult,
-        errorType: RuntimeError || ErrorType.bizError,
+        errorType: refinedErrorType ?? fallbackErrorType,
         message,
         provider: this.id,
       });
@@ -1539,6 +1621,13 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       } as ResponseCreateParamsWithPromptCacheKey;
       const preparedRequest = this.prepareResponsesRequest(postPayload, usageModel);
       const requestPayload = preparedRequest.payload;
+      const providerResponseDiagnostics = initializeOpenAIDiagnostics({
+        apiMode: 'responses',
+        diagnostics: options?.diagnostics,
+        endpoint: desensitizeUrl(this.baseURL),
+        payload: requestPayload,
+        sentAt: Date.now(),
+      });
 
       if (debugParams?.responses?.()) {
         debugPayload(requestPayload);
@@ -1546,12 +1635,18 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
       log('sending responses.create request');
 
-      const response = await this.client.responses.create(requestPayload, {
+      const responsePromise = this.client.responses.create(requestPayload, {
         headers: {
           ...options?.requestHeaders,
           ...preparedRequest?.headers,
         },
         signal: options?.signal,
+      });
+      const responseWithMetadata = await resolveOpenAIResponseWithMetadata(responsePromise);
+      const response = responseWithMetadata.data;
+      recordOpenAIResponseMetadata(providerResponseDiagnostics, {
+        requestId: responseWithMetadata.request_id,
+        response: responseWithMetadata.response,
       });
 
       const streamOptions: OpenAIStreamOptions = {
@@ -1568,14 +1663,33 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
       if (isStreaming) {
         log('processing streaming Responses API response');
-        const stream = response as Stream<OpenAI.Responses.ResponseStreamEvent>;
-        const [prod, useForDebug] = stream.tee();
+        let prod = response as
+          | ReadableStream<OpenAI.Responses.ResponseStreamEvent>
+          | Stream<OpenAI.Responses.ResponseStreamEvent>;
 
         if (debugParams?.responses?.()) {
+          const [productionStream, useForDebug] = prod.tee();
+          prod = productionStream;
           const useForDebugStream =
             useForDebug instanceof ReadableStream ? useForDebug : useForDebug.toReadableStream();
 
           debugStream(useForDebugStream).catch(console.error);
+        }
+
+        if (providerResponseDiagnostics) {
+          /** Observe provider-native events before the Responses protocol adapter transforms them. */
+          const observedStream = observeOpenAIResponsesStream(
+            prod,
+            providerResponseDiagnostics,
+            options?.signal,
+          );
+          prod =
+            observedStream instanceof ReadableStream
+              ? observedStream
+              : readableFromAsyncIterable(observedStream, {
+                  model: usageModel,
+                  provider: this.id,
+                });
         }
 
         return StreamingResponse(OpenAIResponsesStream(prod, { ...streamOptions, inputStartAt }), {
@@ -1589,6 +1703,12 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       if (debugParams?.responses?.()) {
         debugResponse(response);
       }
+
+      await recordOpenAIResponsesResponse(
+        providerResponseDiagnostics,
+        response as OpenAI.Responses.Response,
+        options?.signal,
+      );
 
       if (responseMode === 'json') {
         log('returning JSON response mode');

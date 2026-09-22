@@ -1,11 +1,16 @@
+import { readFile } from 'node:fs/promises';
+
+import type { AcceptanceCheckGroup } from '@lobechat/types';
 import type { Command } from 'commander';
 import pc from 'picocolors';
 
 import { getTrpcClient } from '../api/client';
 import { outputJson, printTable, timeAgo, truncate } from '../utils/format';
 import { log } from '../utils/logger';
+import { attachAcceptanceFlowCommands } from './acceptanceFlow';
 import { attachAcceptanceRunCommands } from './acceptanceRun';
-import { parseSubjectRef } from './verifyHelpers';
+import type { ReviewAnnotationRegion } from './verifyHelpers';
+import { formatAnnotationRegion, parseSubjectRef } from './verifyHelpers';
 
 /**
  * Resolve an acceptance from either its uuid or a `type:id` subject reference —
@@ -64,6 +69,21 @@ export function registerAcceptanceCommands(parent: Command, options?: { deprecat
         ? 'Deprecated alias — use `lh acceptance`'
         : 'Delivery acceptances: the cross-round review loop (checks, feedback, decision)',
     );
+
+  attachAcceptanceFlowCommands(acceptance);
+
+  acceptance
+    .command('regroup <idOrSubject>')
+    .description('Change checklist business groups while preserving checks, evidence and history')
+    .requiredOption('--file <path>', 'JSON: expectedVersion and groups [{ title, checkItemIds }]')
+    .action(async (ref: string, options: { file: string }) => {
+      const id = await resolveAcceptanceId(ref);
+      const input: { expectedVersion: number; groups: AcceptanceCheckGroup[] } = JSON.parse(
+        await readFile(options.file, 'utf8'),
+      );
+      const client = await getTrpcClient();
+      outputJson(await client.acceptance.regroupChecks.mutate({ ...input, id }));
+    });
 
   acceptance
     .command('list')
@@ -191,22 +211,54 @@ export function registerAcceptanceCommands(parent: Command, options?: { deprecat
 
         interface FeedbackEntry {
           actionable: boolean;
-          annotations?: { comment?: string }[];
+          /**
+           * Kept whole. Dropping `evidenceId`/`rect` here used to leave the
+           * reader with a bare note and several plausible targets on the
+           * screenshot — the location is the actionable half of a region.
+           */
+          annotations?: (ReviewAnnotationRegion & { region?: string })[];
           category?: string;
           checkId?: string;
           checkSeq?: number;
           comment: string;
           createdAt?: string;
           fileIds?: string[];
-          kind: 'check' | 'group';
+          kind: 'check' | 'group' | 'flow';
           roundIndex: number;
           title?: string;
         }
 
+        // `evidenceId` is opaque on its own — resolve it to the artifact name the
+        // report used. An annotation can point at an older round's evidence, so
+        // the timeline is folded in alongside the check's current evidence.
+        interface EvidenceRow {
+          description?: string | null;
+          id?: string;
+        }
+        const evidenceLabels = new Map<string, string>();
+        for (const check of bundle.checks) {
+          const rows: EvidenceRow[] = [
+            ...(check.evidence ?? []),
+            ...(check.timeline ?? []).flatMap(
+              (entry: { evidence?: EvidenceRow[] }) => entry.evidence ?? [],
+            ),
+          ];
+          for (const row of rows) {
+            if (row?.id && row.description) evidenceLabels.set(row.id, row.description);
+          }
+        }
+
         const entries: FeedbackEntry[] = [];
+        const flowResultIds = new Set(
+          (bundle.flows ?? []).flatMap((flow) =>
+            flow.versions.flatMap((version) =>
+              version.runs.flatMap((run) => run.attempts.map((attempt) => attempt.checkResultId)),
+            ),
+          ),
+        );
         for (const check of bundle.checks) {
           for (const review of check.reviews) {
-            if (review.action !== 'reject') continue;
+            if (review.action !== 'reject' || flowResultIds.has(review.id)) continue;
             // Standing = this reject is the check's latest verdict and no newer
             // round has consumed it yet.
             const standing = Boolean(
@@ -217,7 +269,10 @@ export function registerAcceptanceCommands(parent: Command, options?: { deprecat
             );
             entries.push({
               actionable: standing,
-              annotations: review.annotations?.map((a) => ({ comment: a.comment })),
+              annotations: review.annotations?.map((a: ReviewAnnotationRegion) => ({
+                ...a,
+                region: formatAnnotationRegion(a, evidenceLabels),
+              })),
               checkId: check.id,
               checkSeq: check.seq,
               comment: review.comment ?? '',
@@ -227,6 +282,40 @@ export function registerAcceptanceCommands(parent: Command, options?: { deprecat
               roundIndex: review.roundIndex,
               title: check.title,
             });
+          }
+        }
+        for (const flow of bundle.flows ?? []) {
+          for (const version of flow.versions) {
+            for (const run of version.runs) {
+              const latest = new Map(
+                run.attempts.map((attempt) => [attempt.checkItemId, attempt.id]),
+              );
+              for (const attempt of run.attempts) {
+                if (attempt.review !== 'rejected') continue;
+                for (const evidence of attempt.evidence) {
+                  if (evidence.description) evidenceLabels.set(evidence.id, evidence.description);
+                }
+                entries.push({
+                  actionable:
+                    version.id === flow.versions[0]?.id &&
+                    run.id === version.runs[0]?.id &&
+                    latest.get(attempt.checkItemId) === attempt.id,
+                  annotations: attempt.reviewDetail?.annotations?.map((a) => ({
+                    ...a,
+                    region: formatAnnotationRegion(a, evidenceLabels),
+                  })),
+                  checkId: attempt.checkItemId,
+                  comment: attempt.reviewComment ?? '',
+                  createdAt: attempt.reviewDetail?.decidedAt,
+                  fileIds: attempt.reviewDetail?.fileIds,
+                  kind: 'flow',
+                  roundIndex:
+                    bundle.rounds.find((round) => round.run.id === run.verifyRunId)?.run
+                      .roundIndex ?? 0,
+                  title: `${version.nodes.find((node) => node.id === attempt.nodeId)?.title ?? ''} · #${attempt.sequence}`,
+                });
+              }
+            }
           }
         }
         for (const round of bundle.rounds) {
@@ -264,11 +353,14 @@ export function registerAcceptanceCommands(parent: Command, options?: { deprecat
           const label =
             entry.kind === 'check'
               ? `C${entry.checkSeq} ${truncate(entry.title ?? '', 60)}`
-              : `group · ${entry.category || 'overall'}`;
+              : entry.kind === 'flow'
+                ? `flow · ${entry.title}`
+                : `group · ${entry.category || 'overall'}`;
           console.log(`${marker} ${label} ${pc.dim(`(r${entry.roundIndex})`)}`);
           if (entry.comment) console.log(`    ${entry.comment}`);
           for (const annotation of entry.annotations ?? []) {
             if (annotation.comment) console.log(`    ${pc.dim('region:')} ${annotation.comment}`);
+            if (annotation.region) console.log(`      ${pc.dim(`└ ${annotation.region}`)}`);
           }
           if (entry.fileIds?.length)
             console.log(`    ${pc.dim(`attachments: ${entry.fileIds.join(', ')}`)}`);

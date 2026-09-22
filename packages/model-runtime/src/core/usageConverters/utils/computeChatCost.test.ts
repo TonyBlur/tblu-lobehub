@@ -225,7 +225,7 @@ describe('computeChatPricing', () => {
 
     it.each(hostedPricingCases)(
       'applies LobeHub-hosted official pricing for $modelId',
-      ({ expectedCredits, expectedUnits, modelId }) => {
+      ({ expectedCredits, expectedUnits }) => {
         const pricing: Pricing = { units: expectedUnits };
 
         const result = computeChatCost(pricing, usage);
@@ -254,9 +254,9 @@ describe('computeChatPricing', () => {
       expect(pricing).toEqual({
         currency: 'CNY',
         units: [
-          { name: 'textInput_cacheRead', rate: 0.02, strategy: 'fixed', unit: 'millionTokens' },
-          { name: 'textInput', rate: 1, strategy: 'fixed', unit: 'millionTokens' },
-          { name: 'textOutput', rate: 2, strategy: 'fixed', unit: 'millionTokens' },
+          { name: 'textInput_cacheRead', rate: 0.05, strategy: 'fixed', unit: 'millionTokens' },
+          { name: 'textInput', rate: 1.5, strategy: 'fixed', unit: 'millionTokens' },
+          { name: 'textOutput', rate: 4.5, strategy: 'fixed', unit: 'millionTokens' },
         ],
       });
     });
@@ -453,6 +453,195 @@ describe('computeChatPricing', () => {
       expect(breakdown.find((item) => item.unit.name === 'videoInput')?.credits).toBe(150);
       expect(breakdown.find((item) => item.unit.name === 'audioInput')?.credits).toBe(400);
       expect(breakdown.find((item) => item.unit.name === 'textOutput')?.credits).toBe(30);
+    });
+
+    it('falls Google audio tokens back to text input when no audio unit exists', () => {
+      const pricing: Pricing = {
+        units: [{ name: 'textInput', rate: 1, strategy: 'fixed', unit: 'millionTokens' }],
+      };
+      const usage: ModelTokensUsage = {
+        inputAudioTokens: 20,
+        inputTextTokens: 80,
+        totalInputTokens: 100,
+        totalTokens: 100,
+      };
+
+      const result = computeChatCost(pricing, usage);
+
+      expect(result?.breakdown.find((item) => item.unit.name === 'textInput')?.quantity).toBe(100);
+      expect(result?.totalCost).toBe(0.000_1);
+    });
+
+    it('removes dedicated audio from aggregate cache-miss input before text billing', () => {
+      const pricing: Pricing = {
+        units: [
+          { name: 'textInput', rate: 1, strategy: 'fixed', unit: 'millionTokens' },
+          { name: 'audioInput', rate: 10, strategy: 'fixed', unit: 'millionTokens' },
+        ],
+      };
+      const usage: ModelTokensUsage = {
+        inputAudioTokens: 20,
+        inputCacheMissTokens: 100,
+        inputTextTokens: 80,
+        totalInputTokens: 100,
+        totalTokens: 100,
+      };
+
+      const result = computeChatCost(pricing, usage);
+
+      expect(result?.breakdown.find((item) => item.unit.name === 'textInput')?.quantity).toBe(80);
+      expect(result?.breakdown.find((item) => item.unit.name === 'audioInput')?.quantity).toBe(20);
+      expect(result?.totalCost).toBe(0.000_28);
+    });
+
+    it('does not produce a cost when aggregate cache usage omits the cached audio split', () => {
+      const pricing: Pricing = {
+        units: [
+          { name: 'textInput', rate: 1, strategy: 'fixed', unit: 'millionTokens' },
+          {
+            name: 'textInput_cacheRead',
+            rate: 0.1,
+            strategy: 'fixed',
+            unit: 'millionTokens',
+          },
+          { name: 'audioInput', rate: 10, strategy: 'fixed', unit: 'millionTokens' },
+          {
+            name: 'audioInput_cacheRead',
+            rate: 1,
+            strategy: 'fixed',
+            unit: 'millionTokens',
+          },
+        ],
+      };
+      const usage: ModelTokensUsage = {
+        inputAudioTokens: 80,
+        inputCachedTokens: 40,
+        inputCacheMissTokens: 60,
+        inputTextTokens: 20,
+        totalInputTokens: 100,
+        totalTokens: 100,
+      };
+
+      const result = computeChatCost(pricing, usage);
+
+      expect(result).toBeUndefined();
+    });
+
+    it('continues when the provider explicitly reports zero audio tokens', () => {
+      const pricing: Pricing = {
+        units: [
+          { name: 'textInput', rate: 1, strategy: 'fixed', unit: 'millionTokens' },
+          {
+            name: 'textInput_cacheRead',
+            rate: 0.1,
+            strategy: 'fixed',
+            unit: 'millionTokens',
+          },
+          { name: 'audioInput', rate: 10, strategy: 'fixed', unit: 'millionTokens' },
+          {
+            name: 'audioInput_cacheRead',
+            rate: 1,
+            strategy: 'fixed',
+            unit: 'millionTokens',
+          },
+        ],
+      };
+      const usage: ModelTokensUsage = {
+        inputAudioTokens: 0,
+        inputCachedTokens: 40,
+        inputCacheMissTokens: 60,
+        inputTextTokens: 100,
+        totalInputTokens: 100,
+        totalTokens: 100,
+      };
+
+      const result = computeChatCost(pricing, usage);
+
+      expect(result).toBeDefined();
+      expect(result?.breakdown.find((item) => item.unit.name === 'textInput')?.quantity).toBe(60);
+      expect(
+        result?.breakdown.find((item) => item.unit.name === 'textInput_cacheRead')?.quantity,
+      ).toBe(40);
+      expect(result?.breakdown.find((item) => item.unit.name === 'audioInput')?.quantity).toBe(0);
+    });
+
+    it('continues when the provider explicitly reports zero cached audio tokens', () => {
+      const pricing: Pricing = {
+        units: [
+          { name: 'textInput', rate: 1, strategy: 'fixed', unit: 'millionTokens' },
+          {
+            name: 'textInput_cacheRead',
+            rate: 0.1,
+            strategy: 'fixed',
+            unit: 'millionTokens',
+          },
+          { name: 'audioInput', rate: 10, strategy: 'fixed', unit: 'millionTokens' },
+          {
+            name: 'audioInput_cacheRead',
+            rate: 1,
+            strategy: 'fixed',
+            unit: 'millionTokens',
+          },
+        ],
+      };
+      const usage: ModelTokensUsage = {
+        inputAudioTokens: 20,
+        inputCachedAudioTokens: 0,
+        inputCachedTextTokens: 40,
+        inputCachedTokens: 40,
+        inputCacheMissTokens: 60,
+        inputTextTokens: 80,
+        totalInputTokens: 100,
+        totalTokens: 100,
+      };
+
+      const result = computeChatCost(pricing, usage);
+
+      expect(result).toBeDefined();
+      expect(result?.breakdown.find((item) => item.unit.name === 'textInput')?.quantity).toBe(40);
+      expect(result?.breakdown.find((item) => item.unit.name === 'audioInput')?.quantity).toBe(20);
+      expect(
+        result?.breakdown.find((item) => item.unit.name === 'audioInput_cacheRead')?.quantity,
+      ).toBe(0);
+    });
+
+    it('does not change legacy image/video fallback allocation when adding audio support', () => {
+      const pricing: Pricing = {
+        units: [{ name: 'textInput', rate: 1, strategy: 'fixed', unit: 'millionTokens' }],
+      };
+      const usage: ModelTokensUsage = {
+        inputImageTokens: 10,
+        inputTextTokens: 80,
+        inputVideoTokens: 10,
+        totalInputTokens: 100,
+        totalTokens: 100,
+      };
+
+      const result = computeChatCost(pricing, usage);
+
+      expect(result?.breakdown.find((item) => item.unit.name === 'textInput')?.quantity).toBe(80);
+    });
+
+    it('does not subtract image/video from aggregate cache misses', () => {
+      const pricing: Pricing = {
+        units: [
+          { name: 'textInput', rate: 1, strategy: 'fixed', unit: 'millionTokens' },
+          { name: 'imageInput', rate: 2, strategy: 'fixed', unit: 'millionTokens' },
+          { name: 'videoInput', rate: 3, strategy: 'fixed', unit: 'millionTokens' },
+        ],
+      };
+      const usage: ModelTokensUsage = {
+        inputCacheMissTokens: 100,
+        inputImageTokens: 10,
+        inputTextTokens: 80,
+        inputVideoTokens: 10,
+        totalInputTokens: 100,
+        totalTokens: 100,
+      };
+
+      const result = computeChatCost(pricing, usage);
+
+      expect(result?.breakdown.find((item) => item.unit.name === 'textInput')?.quantity).toBe(100);
     });
 
     it('charges multimodal input units for custom Gemini Pro pricing', () => {
@@ -1036,9 +1225,9 @@ describe('computeChatPricing', () => {
   });
 
   describe('Anthropic', () => {
-    it('handles lookup pricing with TTL for Claude Opus 4.1', () => {
+    it('handles lookup pricing with TTL for Claude Opus 4.6', () => {
       const pricing = anthropicChatModels.find(
-        (model: { id: string }) => model.id === 'claude-opus-4-1-20250805',
+        (model: { id: string }) => model.id === 'claude-opus-4-6',
       )?.pricing;
       expect(pricing).toBeDefined();
 
@@ -1052,19 +1241,19 @@ describe('computeChatPricing', () => {
       const result = computeChatCost(pricing, usage, { lookupParams: { ttl: '5m' } });
       expect(result).toBeDefined();
       expect(result?.issues).toHaveLength(0);
-      expect(result?.totalCredits).toBe(58_425);
-      expect(result?.totalCost).toBeCloseTo(0.058425, 10);
+      expect(result?.totalCredits).toBe(19_475);
+      expect(result?.totalCost).toBeCloseTo(0.019475, 10);
 
       const cacheWrite = result?.breakdown.find(
         (item) => item.unit.name === 'textInput_cacheWrite',
       );
       expect(cacheWrite?.lookupKey).toBe('5m');
-      expect(cacheWrite?.credits).toBe(5_625);
+      expect(cacheWrite?.credits).toBe(1_875);
     });
 
     it('handles lookup pricing with missing key and adds issue', () => {
       const pricing = anthropicChatModels.find(
-        (model: { id: string }) => model.id === 'claude-opus-4-1-20250805',
+        (model: { id: string }) => model.id === 'claude-opus-4-6',
       )?.pricing;
       expect(pricing).toBeDefined();
 
@@ -1090,7 +1279,7 @@ describe('computeChatPricing', () => {
 
     it('handles lookup pricing with missing lookup params and adds issue', () => {
       const pricing = anthropicChatModels.find(
-        (model: { id: string }) => model.id === 'claude-opus-4-1-20250805',
+        (model: { id: string }) => model.id === 'claude-opus-4-6',
       )?.pricing;
       expect(pricing).toBeDefined();
 
@@ -1115,7 +1304,7 @@ describe('computeChatPricing', () => {
 
     it('handles lookup pricing with undefined lookup params and adds issue', () => {
       const pricing = anthropicChatModels.find(
-        (model: { id: string }) => model.id === 'claude-opus-4-1-20250805',
+        (model: { id: string }) => model.id === 'claude-opus-4-6',
       )?.pricing;
       expect(pricing).toBeDefined();
 

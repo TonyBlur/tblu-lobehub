@@ -8,10 +8,12 @@ import type {
 
 import { ensureElectronIpc } from '@/utils/electron/ipc';
 
-export interface SystemMonospaceFont {
+export interface SystemFont {
   label: string;
   value: string;
 }
+
+export type SystemMonospaceFont = SystemFont;
 
 /**
  * Service class for interacting with Electron's system-level information and actions.
@@ -35,8 +37,16 @@ class ElectronSystemService {
     return this.ipc.system.setDesktopOnboardingCompleted(completed);
   }
 
-  async getSystemMonospaceFonts(): Promise<SystemMonospaceFont[]> {
+  async setLastWorkspaceSlug(slug: string | null): Promise<void> {
+    return this.ipc.system.setLastWorkspaceSlug(slug);
+  }
+
+  async getSystemMonospaceFonts(): Promise<SystemFont[]> {
     return this.ipc.system.getSystemMonospaceFonts();
+  }
+
+  async getSystemFonts(): Promise<SystemFont[]> {
+    return this.ipc.system.getSystemFonts();
   }
 
   async closeWindow(): Promise<void> {

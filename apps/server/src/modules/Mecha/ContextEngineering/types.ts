@@ -8,6 +8,7 @@ import type {
   DiscordContext,
   EvalContext,
   FileContent,
+  GroupAgentBuilderContext,
   KnowledgeBaseInfo,
   LobeToolManifest,
   OnboardingContext,
@@ -16,9 +17,16 @@ import type {
   ToolDiscoveryConfig,
   TopicReferenceItem,
   UserMemoryData,
+  ProjectInstructionFile,
+  WorkspaceContext,
 } from '@lobechat/context-engine';
-import type { PageContentContext } from '@lobechat/prompts';
-import type { RuntimeInitialContext, UIChatMessage } from '@lobechat/types';
+import type { AgentIdentityContext, PageContentContext } from '@lobechat/prompts';
+import type {
+  ExpertiseContextSnapshot,
+  RuntimeAdditionalContextFragment,
+  RuntimeInitialContext,
+  UIChatMessage,
+} from '@lobechat/types';
 
 /**
  * Model capability checker functions for server-side
@@ -73,10 +81,16 @@ export interface ServerUserMemoryConfig {
  * instead of fetching from stores
  */
 export interface ServerMessagesEngineParams {
+  /** Agent-materialized presentation contexts for this LLM call */
+  additionalContexts?: readonly RuntimeAdditionalContextFragment[];
   /** Additional variable values to merge with defaults (e.g. device paths) */
   additionalVariables?: Record<string, string>;
   /** Agent documents to inject into context based on load rules and positions */
   agentDocuments?: AgentContextDocument[];
+  /** Immutable expertise captured when the operation started. */
+  expertise?: ExpertiseContextSnapshot;
+  /** Whether to inject the operation expertise snapshot. */
+  enableExpertise?: boolean;
   /** User's timezone for time-related variables (e.g. 'Asia/Shanghai') */
   userTimezone?: string;
   // ========== Extended contexts ==========
@@ -86,16 +100,24 @@ export interface ServerMessagesEngineParams {
   agentGroup?: AgentGroupConfig;
   /** Agent Management context (optional, available models and plugins) */
   agentManagementContext?: AgentManagementContext;
+  /** Group Agent Builder context (optional, for editing the current group) */
+  groupAgentBuilderContext?: GroupAgentBuilderContext;
   // ========== Capability injection ==========
   /** Model capability checkers */
   capabilities?: ServerModelCapabilities;
   /** Bot platform context for injecting platform capabilities (e.g. markdown support) */
   botPlatformContext?: BotPlatformContext;
+  /** App origin + workspace slug so the model writes links that resolve to the right scope */
+  workspaceContext?: WorkspaceContext;
   /** Discord context for injecting channel/guild info */
   discordContext?: DiscordContext;
   // ========== Eval context ==========
   /** Eval context for injecting environment prompts into system message */
+  /** Borrowed-connector attribution, injected into the system message. */
+  connectorOwnershipNote?: string;
   evalContext?: EvalContext;
+  /** A project's root instruction files, injected into the system message. */
+  projectInstructions?: ProjectInstructionFile[];
   // ========== Onboarding context ==========
   /** Onboarding context for injecting phase guidance and documents */
   onboardingContext?: OnboardingContext;
@@ -149,6 +171,9 @@ export interface ServerMessagesEngineParams {
 
   /** System role */
   systemRole?: string;
+
+  /** The agent's identity (personal name + role title) for self-introduction */
+  agentIdentity?: AgentIdentityContext;
 
   // ========== Skills ==========
   /** Skills configuration for <available_skills> injection */

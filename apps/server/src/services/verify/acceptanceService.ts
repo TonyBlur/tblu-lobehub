@@ -1,10 +1,14 @@
-import { normalizeVerifySurface } from '@lobechat/const/verify';
+import { isDraftVerifyRun, normalizeVerifySurface } from '@lobechat/const/verify';
 import type {
   AcceptanceAttachment,
+  AcceptanceCheckGroup,
   AcceptanceCheckReviewAction,
+  AcceptanceConfig,
+  AcceptanceRejectIntent,
   AcceptanceReviewAnnotation,
   AcceptanceStatus,
   AcceptanceSubjectType,
+  ReviewProposalOutcome,
   VerifyAgentPlanConfig,
   VerifyCheckDecisionDetail,
   VerifyCheckItem,
@@ -16,11 +20,14 @@ import debug from 'debug';
 import { AcceptanceModel } from '@/database/models/acceptance';
 import { AgentModel } from '@/database/models/agent';
 import { DocumentModel } from '@/database/models/document';
+import { ProjectModel } from '@/database/models/project';
 import { TaskModel } from '@/database/models/task';
+import { TaskTopicModel } from '@/database/models/taskTopic';
 import { TopicModel } from '@/database/models/topic';
 import { VerifyCheckResultModel } from '@/database/models/verifyCheckResult';
 import { VerifyEvidenceModel } from '@/database/models/verifyEvidence';
 import { VerifyReportModel } from '@/database/models/verifyReport';
+import { VerifyReviewPredictionModel } from '@/database/models/verifyReviewPrediction';
 import { VerifyRunModel } from '@/database/models/verifyRun';
 import type {
   AcceptanceItem,
@@ -29,7 +36,9 @@ import type {
 } from '@/database/schemas/verify';
 import type { LobeChatDatabase } from '@/database/type';
 import { TaskService } from '@/server/services/task';
+import { ExpertiseRejectionWorkflow } from '@/server/workflows/expertiseRejection';
 
+import { type AcceptanceMergeSummary, mergeAcceptanceRounds } from './acceptanceMerge';
 import { computeFalseFlags } from './feedbackService';
 
 const log = debug('lobe-server:verify-acceptance');
@@ -136,7 +145,10 @@ const itemSurface = (item: VerifyCheckItem | undefined): VerifySurface | null =>
  *   item's iteration timeline, so a semantically-dead older wording stops
  *   showing up as its own row.
  */
-export const buildAcceptanceCheckUnion = (rounds: RoundInput[]): AcceptanceCheckRow[] => {
+export const buildAcceptanceCheckUnion = (
+  rounds: RoundInput[],
+  groups: AcceptanceCheckGroup[] = [],
+): AcceptanceCheckRow[] => {
   const ordered = [...rounds].sort((a, b) => (a.run.roundIndex ?? 0) - (b.run.roundIndex ?? 0));
 
   const rows = new Map<string, AcceptanceCheckRow>();
@@ -171,13 +183,21 @@ export const buildAcceptanceCheckUnion = (rounds: RoundInput[]): AcceptanceCheck
     const plan = (run.plan ?? []) as VerifyCheckItem[];
     const planById = new Map(plan.map((item) => [item.id, item]));
     const logicalIdByCheckItemId = new Map(
-      plan.map((item) => [item.id, item.sourceCriterionId ?? item.id]),
+      plan.map((item) => [
+        item.id,
+        item.sourceFlowNode ? item.id : (item.sourceCriterionId ?? item.id),
+      ]),
     );
 
     for (const item of plan) {
-      const logicalId = item.sourceCriterionId ?? item.id;
+      const logicalId = item.sourceFlowNode ? item.id : (item.sourceCriterionId ?? item.id);
       const row = ensureRow(logicalId, roundIndex);
       // The latest snapshot wins: repair rounds may refine method/expected.
+      if (item.sourceFlowNode) {
+        // A rerun is a fresh execution; historical evidence stays in the timeline.
+        row.result = undefined;
+        row.resultRound = undefined;
+      }
       row.planItem = item;
       row.title = item.title;
       row.required = item.required;
@@ -248,7 +268,16 @@ export const buildAcceptanceCheckUnion = (rounds: RoundInput[]): AcceptanceCheck
     }
   }
 
-  return [...rows.values()];
+  // Organization belongs to the current acceptance, not its immutable execution
+  // snapshots. Preserve IDs, numbering and result references when a check moves.
+  const grouped = new Map<string, AcceptanceCheckRow>();
+  for (const group of groups) {
+    for (const id of group.checkItemIds) {
+      const row = rows.get(id);
+      if (row) grouped.set(id, { ...row, category: group.title });
+    }
+  }
+  return [...grouped.values(), ...[...rows.values()].filter((row) => !grouped.has(row.id))];
 };
 
 // ============================================
@@ -307,7 +336,7 @@ export interface AcceptanceCheckReviewOverlay {
  * already folded their results into this row's timeline.
  */
 export const buildCheckReviewOverlay = (
-  check: Pick<AcceptanceCheckRow, 'timeline'>,
+  check: Pick<AcceptanceCheckRow, 'timeline'> & Partial<Pick<AcceptanceCheckRow, 'planItem'>>,
   resultsById: Map<string, VerifyCheckResultItem>,
   currentRoundIndex: number,
 ): AcceptanceCheckReviewOverlay => {
@@ -346,7 +375,9 @@ export const buildCheckReviewOverlay = (
       comment: latest.comment,
       createdAt: latest.createdAt,
       roundIndex: latest.roundIndex,
-      stale: latest.action === 'reject' && latest.roundIndex < currentRoundIndex,
+      stale:
+        (Boolean(check.planItem?.sourceFlowNode) || latest.action === 'reject') &&
+        latest.roundIndex < currentRoundIndex,
     },
   };
 };
@@ -393,6 +424,16 @@ export interface AcceptanceSubjectSummary {
   type: AcceptanceSubjectType;
 }
 
+/** The list filter as a status set — one definition for the flat and paged reads. */
+export type AcceptanceListFilter = 'active' | 'all' | 'completed';
+
+const statusesForFilter = (filter: AcceptanceListFilter): AcceptanceStatus[] | undefined => {
+  if (filter === 'active')
+    return ['pending', 'planned', 'verifying', 'repairing', 'delivered', 'rejected', 'errored'];
+  if (filter === 'completed') return ['accepted', 'closed'];
+  return undefined;
+};
+
 export class AcceptanceService {
   private readonly db: LobeChatDatabase;
   private readonly userId: string;
@@ -404,9 +445,27 @@ export class AcceptanceService {
   private readonly evidenceModel: VerifyEvidenceModel;
   private readonly reportModel: VerifyReportModel;
 
-  constructor(db: LobeChatDatabase, userId: string, workspaceId?: string) {
+  /**
+   * Who is CREDITED for the writes this service performs.
+   *
+   * Normally the same person the service is scoped to. They diverge for an
+   * elevated write — a workspace owner acting on a teammate's delivery — where
+   * the scope has to be the row's owner for the ownership predicate to resolve
+   * it at all, while `decidedBy` must still name the human who decided. An
+   * audit trail that credits a teammate's verdict to the author is worse than
+   * one nobody can sign.
+   */
+  private readonly actorUserId: string;
+
+  constructor(
+    db: LobeChatDatabase,
+    userId: string,
+    workspaceId?: string,
+    options?: { actorUserId?: string },
+  ) {
     this.db = db;
     this.userId = userId;
+    this.actorUserId = options?.actorUserId ?? userId;
     this.workspaceId = workspaceId;
     this.acceptanceModel = new AcceptanceModel(db, userId, workspaceId);
     this.runModel = new VerifyRunModel(db, userId, workspaceId);
@@ -424,6 +483,11 @@ export class AcceptanceService {
     subjectType: AcceptanceSubjectType,
     subjectId: string,
   ): Promise<void> => {
+    // Standalone acceptances are the subject themselves. They deliberately do
+    // not require a Task/Topic/Document row, which keeps external repositories
+    // from having to manufacture a LobeHub task before publishing evidence.
+    if (subjectType === 'standalone') return;
+
     const found = await this.findSubject(subjectType, subjectId);
     if (!found) {
       throw new Error(`${subjectType} "${subjectId}" not found in the current workspace`);
@@ -440,7 +504,9 @@ export class AcceptanceService {
         return task ? { title: task.name ?? task.identifier } : null;
       }
       case 'topic': {
-        const topic = await new TopicModel(this.db, this.userId, this.workspaceId).findById(
+        // Creator-facing lookup: an agent-share visitor topic must not be
+        // treated as a valid acceptance subject for the creator.
+        const topic = await new TopicModel(this.db, this.userId, this.workspaceId).findOwnTopicById(
           subjectId,
         );
         return topic ? { title: topic.title ?? null } : null;
@@ -451,6 +517,9 @@ export class AcceptanceService {
         );
         return doc ? { title: doc.title ?? null } : null;
       }
+      case 'standalone': {
+        return null;
+      }
     }
   };
 
@@ -458,10 +527,43 @@ export class AcceptanceService {
   ensureForSubject = async (
     subjectType: AcceptanceSubjectType,
     subjectId: string,
-    defaults?: { requirement?: string },
+    defaults?: { config?: AcceptanceConfig; requirement?: string; title?: string },
   ): Promise<AcceptanceItem> => {
     await this.assertSubjectExists(subjectType, subjectId);
-    return this.acceptanceModel.ensureForSubject(subjectType, subjectId, defaults);
+    const projectId = await this.resolveSubjectProjectId(subjectType, subjectId);
+    return this.acceptanceModel.ensureForSubject(subjectType, subjectId, {
+      config: defaults?.config,
+      projectId,
+      requirement: defaults?.requirement,
+      ...(subjectType === 'standalone' && defaults?.title
+        ? { metadata: { title: defaults.title } }
+        : {}),
+    });
+  };
+
+  private resolveSubjectProjectId = async (
+    subjectType: AcceptanceSubjectType,
+    subjectId: string,
+  ): Promise<string | null> => {
+    if (subjectType === 'task') {
+      return (
+        (await new TaskModel(this.db, this.userId, this.workspaceId).resolve(subjectId))
+          ?.projectId ?? null
+      );
+    }
+    if (subjectType === 'topic') {
+      const taskTopic = await new TaskTopicModel(
+        this.db,
+        this.userId,
+        this.workspaceId,
+      ).findByTopicId(subjectId);
+      if (!taskTopic) return null;
+      return (
+        (await new TaskModel(this.db, this.userId, this.workspaceId).resolve(taskTopic.taskId))
+          ?.projectId ?? null
+      );
+    }
+    return null;
   };
 
   /**
@@ -471,6 +573,105 @@ export class AcceptanceService {
   attachRun = async (runId: string, acceptanceId: string): Promise<VerifyRunItem> => {
     const acceptance = await this.acceptanceModel.findById(acceptanceId);
     if (!acceptance) throw new Error(`Acceptance "${acceptanceId}" not found`);
+
+    return this.attachResolvedRun(runId, acceptance);
+  };
+
+  /** Attach a Task run using policy scope while preserving report visibility. */
+  attachPolicyRun = async (runId: string, acceptanceId: string): Promise<VerifyRunItem> => {
+    const acceptance = await this.acceptanceModel.findPolicyById(acceptanceId);
+    if (!acceptance) throw new Error(`Acceptance "${acceptanceId}" not found`);
+
+    return this.attachResolvedRun(runId, acceptance);
+  };
+
+  /**
+   * An accepted check is settled and its verdict is sticky: a later result on
+   * the same id inherits the tick, so the round publishes green and the
+   * reviewer is never told there is anything new to look at. That is only safe
+   * while nothing writes to a settled check, which is what this enforces —
+   * refusing the whole round rather than letting the write through, because a
+   * partially attached round is harder to reason about than a rejected one.
+   *
+   * The escape hatch is a new check id: a criterion the reviewer has not ruled
+   * on gets its own row and shows up unreviewed, which is what "there is more
+   * to look at here" should look like.
+   */
+  private assertPlanLeavesAcceptedChecksAlone = async (
+    run: VerifyRunItem,
+    acceptanceId: string,
+  ): Promise<void> => {
+    // Every identity by which an incoming item could come to rest on an
+    // existing row. The union keys rows by `sourceCriterionId ?? id`, and a
+    // `supersedes` declaration folds the named row into this one — so comparing
+    // physical ids alone lets both routes write into a settled row unblocked.
+    const candidates = new Map<string, string>();
+    for (const item of run.plan ?? []) {
+      const logicalId = item.sourceFlowNode ? item.id : (item.sourceCriterionId ?? item.id);
+      if (logicalId) candidates.set(logicalId, item.id);
+      if (item.id) candidates.set(item.id, item.id);
+      for (const superseded of item.supersedes ?? []) {
+        if (superseded) candidates.set(superseded, item.id);
+      }
+    }
+    if (candidates.size === 0) return;
+
+    const runs = await this.runModel.listByAcceptance(acceptanceId);
+    if (runs.length === 0) return;
+
+    const results = await this.resultModel.listByRuns(runs.map((item) => item.id));
+    const resultsById = new Map(results.map((result) => [result.id, result]));
+    const resultsByRun = new Map<string, VerifyCheckResultItem[]>();
+    for (const result of results) {
+      if (!result.verifyRunId) continue;
+      const bucket = resultsByRun.get(result.verifyRunId) ?? [];
+      bucket.push(result);
+      resultsByRun.set(result.verifyRunId, bucket);
+    }
+
+    const currentRoundIndex = runs.at(-1)?.roundIndex ?? 0;
+    const checks = buildAcceptanceCheckUnion(
+      runs.map((item) => ({ results: resultsByRun.get(item.id) ?? [], run: item })),
+    );
+
+    // Read the standing verdict exactly the way the page renders it, so the
+    // rule cannot diverge from the tick the reviewer actually sees.
+    const settled = checks.filter((check) => {
+      const { userReview } = buildCheckReviewOverlay(check, resultsById, currentRoundIndex);
+      return userReview?.action === 'accept' && !userReview.stale;
+    });
+
+    // A superseded generation's id is folded into its successor's row, so match
+    // on both — re-running `old-id` after `new-id supersedes: [old-id]` was
+    // accepted is the same write to the same settled row.
+    const blocked = new Set<string>();
+    for (const check of settled) {
+      blocked.add(check.id);
+      for (const superseded of check.supersededIds ?? []) blocked.add(superseded);
+    }
+
+    // Report the plan item the author has to change, not the internal identity
+    // it collided through — those can differ, and only the former is editable.
+    const offenders = [
+      ...new Set(
+        [...candidates]
+          .filter(([identity]) => blocked.has(identity))
+          .map(([, planItemId]) => planItemId),
+      ),
+    ];
+    if (offenders.length === 0) return;
+
+    throw new Error(
+      `Already accepted, so ${offenders.length === 1 ? 'this check' : 'these checks'} cannot take another result: ` +
+        `${offenders.join(', ')}. An accepted check is settled — publish new work under a new check id instead.`,
+    );
+  };
+
+  private attachResolvedRun = async (
+    runId: string,
+    acceptance: AcceptanceItem,
+  ): Promise<VerifyRunItem> => {
+    const acceptanceId = acceptance.id;
 
     // Idempotent for the re-ingest path (the CLI sidecar remembers the run):
     // an already-chained round keeps its index instead of being re-appended.
@@ -486,12 +687,86 @@ export class AcceptanceService {
       );
     }
 
+    await this.assertPlanLeavesAcceptedChecksAlone(existing, acceptanceId);
+
+    // A round that is still only planned has nothing to preserve: the incoming
+    // run folds into it instead of pushing the ledger to yet another number.
+    // Only the newest round counts — `listByAcceptance` is ascending, and an
+    // older draft the chain has moved past is an abandoned ledger position.
+    const latest = (await this.runModel.listByAcceptance(acceptanceId)).at(-1);
+    const draft = latest && isDraftVerifyRun(latest) ? latest : undefined;
+    if (draft) {
+      const folded = await this.runModel.foldIntoRound(runId, draft.id);
+      await this.recomputeStatus(acceptanceId);
+      log(
+        'run %s folded into draft round %d of acceptance %s',
+        runId,
+        folded.roundIndex,
+        acceptanceId,
+      );
+      return folded;
+    }
+
     // Rounds inherit the aggregate's visibility so a private acceptance's new
     // round never leaks through its own report URL.
     const run = await this.runModel.attachToAcceptance(runId, acceptanceId, acceptance.visibility);
     await this.recomputeStatus(acceptanceId);
     log('run %s attached to acceptance %s as round %d', runId, acceptanceId, run.roundIndex);
+
+    // A new round landing is the first server-side proof that the reviewer is done with the
+    // previous one: rejecting a check ends at a clipboard copy, so nothing else marks "I finished
+    // reviewing".
+    if (latest) this.distilSettledRound(acceptanceId, latest.id);
+
     return run;
+  };
+
+  /**
+   * Fold one acceptance into another — the source's checks (with their rounds,
+   * verdicts and evidence) become part of the target's inventory, and the
+   * source entry goes away.
+   *
+   * The two aggregates are the same delivery arriving twice: a second CLI
+   * ingest that minted a new standalone acceptance, or a topic and the task it
+   * was promoted into. Merging is what makes them one review surface again.
+   */
+  merge = async (sourceId: string, targetId: string): Promise<AcceptanceMergeSummary> => {
+    if (sourceId === targetId) throw new Error('An acceptance cannot be merged into itself');
+
+    const source = await this.acceptanceModel.findById(sourceId);
+    if (!source) throw new Error(`Acceptance "${sourceId}" not found`);
+    const target = await this.acceptanceModel.findById(targetId);
+    if (!target) throw new Error(`Acceptance "${targetId}" not found`);
+
+    // Same rule as attaching a single round: a settled aggregate must be
+    // re-opened deliberately before more checks land in it, or an `accepted`
+    // sign-off would silently start covering checks nobody signed off on.
+    if (target.status === 'accepted' || target.status === 'closed') {
+      throw new Error(
+        `This acceptance has already been ${target.status} — reopen it before merging into it`,
+      );
+    }
+
+    const summary = await mergeAcceptanceRounds({
+      db: this.db,
+      source,
+      target,
+      userId: this.userId,
+      workspaceId: this.workspaceId,
+    });
+
+    // Past this point the merge is COMMITTED and the source no longer exists —
+    // so a failure here must not be reported as a failed merge. The caller
+    // would surface a retry that can only ever fail ("Acceptance not found"),
+    // for a rollup that is derived and re-derived by every later round,
+    // decision and sweep. Log it and return the merge that did happen.
+    try {
+      await this.recomputeStatus(targetId);
+    } catch (error) {
+      log('acceptance %s merged, but status recompute failed (non-fatal): %O', targetId, error);
+    }
+
+    return summary;
   };
 
   /**
@@ -500,7 +775,7 @@ export class AcceptanceService {
    * round newer than the decision arrives.
    */
   recomputeStatus = async (acceptanceId: string): Promise<AcceptanceStatus | null> => {
-    const acceptance = await this.acceptanceModel.findById(acceptanceId);
+    const acceptance = await this.acceptanceModel.findPolicyById(acceptanceId);
     if (!acceptance) return null;
     if (acceptance.status === 'accepted' || acceptance.status === 'closed') {
       return acceptance.status;
@@ -516,10 +791,68 @@ export class AcceptanceService {
     const report = await this.reportModel.findByRun(current.id);
     const status = statusFromRound(current, Boolean(report));
     if (status !== acceptance.status) {
-      await this.acceptanceModel.updateStatus(acceptanceId, status);
+      await this.acceptanceModel.updatePolicyStatus(acceptanceId, status);
       log('acceptance %s → %s (from round %d)', acceptanceId, status, current.roundIndex);
     }
     return status;
+  };
+
+  /** Latest round of an aggregate — the row `stampDecision` would write to. */
+  latestRound = async (acceptanceId: string) => {
+    const runs = await this.runModel.listByAcceptance(acceptanceId);
+    return runs.at(-1) ?? null;
+  };
+
+  regroupChecks = async (
+    acceptanceId: string,
+    groups: AcceptanceCheckGroup[],
+    expectedVersion: number,
+  ) => {
+    const acceptance = await this.acceptanceModel.findById(acceptanceId);
+    if (!acceptance) throw new Error('Acceptance not found');
+    const { results, runs } = await this.loadRounds(acceptanceId);
+    const resultsByRun = new Map<string, VerifyCheckResultItem[]>();
+    for (const result of results) {
+      const bucket = resultsByRun.get(result.verifyRunId!) ?? [];
+      bucket.push(result);
+      resultsByRun.set(result.verifyRunId!, bucket);
+    }
+    const checks = buildAcceptanceCheckUnion(
+      runs.map((run) => ({ results: resultsByRun.get(run.id) ?? [], run })),
+    );
+    const known = new Set(checks.map((check) => check.id));
+    const assigned = new Set<string>();
+    const titles = new Set<string>();
+    const normalized = groups.map((group) => {
+      const title = group.title.trim();
+      if (!title || titles.has(title) || group.checkItemIds.length === 0)
+        throw new Error('Check groups need unique, non-empty titles and members');
+      titles.add(title);
+      for (const id of group.checkItemIds) {
+        if (!known.has(id)) throw new Error(`Unknown check item: ${id}`);
+        if (assigned.has(id)) throw new Error(`Check assigned to multiple groups: ${id}`);
+        assigned.add(id);
+      }
+      return { ...group, title };
+    });
+    return this.acceptanceModel.setCheckGroups(acceptanceId, normalized, expectedVersion);
+  };
+
+  /**
+   * Hands one settled round to distillation, fire-and-forget.
+   *
+   * Never awaited and never allowed to throw: this rides on the reviewer's own paths, and losing a
+   * distillation is a missed lesson, while failing the caller loses their decision. Triggering the
+   * same round twice is harmless — a round is distilled under a reflection key, and the second pass
+   * finds the run already recorded and returns.
+   */
+  private distilSettledRound = (acceptanceId: string, verifyRunId: string) => {
+    void ExpertiseRejectionWorkflow.trigger({
+      acceptanceId,
+      userId: this.userId,
+      verifyRunId,
+      workspaceId: this.workspaceId,
+    });
   };
 
   /**
@@ -530,8 +863,15 @@ export class AcceptanceService {
   accept = async (acceptanceId: string, comment?: string): Promise<AcceptanceItem> => {
     const acceptance = await this.requireDecidableAcceptance(acceptanceId);
 
-    await this.stampDecision(acceptanceId, 'accept', comment);
+    const settled = await this.stampDecision(acceptanceId, 'accept', comment);
     await this.acceptanceModel.updateStatus(acceptanceId, 'accepted');
+
+    // A terminal decision settles the current round as surely as a new round landing does — and it
+    // is the ONLY thing that settles the last one, which no later round will ever follow. Without
+    // this, every acceptance silently loses whatever its final round taught. Accepting the delivery
+    // still settles it: a reviewer can accept overall while individual checks were rejected along
+    // the way, and those rejections are exactly the material.
+    this.distilSettledRound(acceptanceId, settled);
 
     if (acceptance.subjectType === 'task') await this.completeTaskSubject(acceptance.subjectId);
 
@@ -544,12 +884,18 @@ export class AcceptanceService {
    * picks it up. (Spawning the repair run itself is the runtime's job — for
    * agent-bound rounds via the repair pipeline, for ingested rounds via the
    * next `lh verify ingest-report`.)
+   *
+   * A Goal Task is no exception: its next attempt is started by the Goal
+   * coordinator on the following tick, which reads the rejected round's
+   * decision detail through the prompt builder.
    */
   reject = async (acceptanceId: string, comment: string): Promise<AcceptanceItem> => {
     await this.requireDecidableAcceptance(acceptanceId);
 
-    await this.stampDecision(acceptanceId, 'reject', comment);
+    const settled = await this.stampDecision(acceptanceId, 'reject', comment);
     await this.acceptanceModel.updateStatus(acceptanceId, 'rejected');
+
+    this.distilSettledRound(acceptanceId, settled);
 
     return (await this.acceptanceModel.findById(acceptanceId))!;
   };
@@ -570,6 +916,10 @@ export class AcceptanceService {
       checkItemIds: string[];
       comment?: string;
       fileIds?: string[];
+      /** Recorded when this decision answered a model proposal. */
+      proposal?: Omit<ReviewProposalOutcome, 'respondedAt'>;
+      /** Which of the three jobs a reject is doing; absent means unclassified. */
+      rejectIntent?: AcceptanceRejectIntent;
     },
   ): Promise<{ resultIds: string[] }> => {
     const acceptance = await this.acceptanceModel.findById(acceptanceId);
@@ -621,24 +971,56 @@ export class AcceptanceService {
     const currentRoundIndex = runs.at(-1)?.roundIndex ?? 0;
     const detail: VerifyCheckDecisionDetail = {
       decidedAt: new Date().toISOString(),
-      decidedBy: this.userId,
+      decidedBy: this.actorUserId,
       roundIndex: currentRoundIndex,
       ...(input.comment ? { comment: input.comment } : {}),
       ...(input.annotations?.length ? { annotations: input.annotations } : {}),
       ...(input.fileIds?.length ? { fileIds: input.fileIds } : {}),
+      // Only meaningful on a reject — an accept has no intent to classify.
+      ...(input.rejectIntent && input.action === 'reject'
+        ? { rejectIntent: input.rejectIntent }
+        : {}),
+      ...(input.proposal
+        ? { proposal: { ...input.proposal, respondedAt: new Date().toISOString() } }
+        : {}),
     };
 
-    await Promise.all(
-      [...targets.values()].map((result) => {
-        const { isFalsePositive, isFalseNegative } = computeFalseFlags(result.verdict, decision);
-        return this.resultModel.update(result.id, {
-          isFalseNegative,
-          isFalsePositive,
-          userDecision: decision,
-          userDecisionDetail: detail,
+    // One transaction for the decision AND the proposal's answer. Written
+    // separately, a failing second write left the check rejected while its
+    // prediction stayed unanswered — and the decision then HIDES the proposal,
+    // so nothing could ever reconcile the pair again. Agreement analysis reads
+    // those two rows as a matched set; a durable split is worse than failing.
+    await this.db.transaction(async (tx) => {
+      const resultModel = new VerifyCheckResultModel(tx, this.userId, this.workspaceId);
+
+      await Promise.all(
+        [...targets.values()].map((result) => {
+          const { isFalsePositive, isFalseNegative } = computeFalseFlags(result.verdict, decision);
+          return resultModel.update(result.id, {
+            isFalseNegative,
+            isFalsePositive,
+            userDecision: decision,
+            userDecisionDetail: detail,
+          });
+        }),
+      );
+
+      if (input.proposal) {
+        const answered = await new VerifyReviewPredictionModel(
+          tx,
+          this.userId,
+          this.workspaceId,
+        ).adjudicate(input.proposal.predictionId, {
+          adjudication: input.proposal.adjudication,
+          edit: input.proposal.edit,
         });
-      }),
-    );
+        // A zero-row update means the id was wrong or not ours; committing the
+        // decision alone would produce exactly the split this transaction exists
+        // to prevent.
+        if (!answered) throw new Error(`Proposal "${input.proposal.predictionId}" not found`);
+      }
+    });
+
     log('acceptance %s: %d check result(s) marked %s', acceptanceId, targets.size, decision);
     return { resultIds: [...targets.keys()] };
   };
@@ -671,21 +1053,24 @@ export class AcceptanceService {
     return acceptance;
   };
 
+  /** Stamps the decision on the current round and returns it — the round that decision settles. */
   private stampDecision = async (
     acceptanceId: string,
     decision: 'accept' | 'reject',
     comment?: string,
-  ): Promise<void> => {
+  ): Promise<string> => {
     const runs = await this.runModel.listByAcceptance(acceptanceId);
     const current = runs.at(-1);
     if (!current) throw new Error('This acceptance has no verification round to decide on');
 
     const detail: VerifyRunDecisionDetail = {
       decidedAt: new Date().toISOString(),
-      decidedBy: this.userId,
+      decidedBy: this.actorUserId,
       ...(comment ? { comment } : {}),
     };
     await this.runModel.setDecision(current.id, decision, detail);
+
+    return current.id;
   };
 
   /**
@@ -738,6 +1123,101 @@ export class AcceptanceService {
     };
   };
 
+  /** Resolve list subjects in one query per entity type, regardless of history size. */
+  private resolveSubjects = async (
+    acceptances: AcceptanceItem[],
+  ): Promise<Map<string, AcceptanceSubjectSummary>> => {
+    const result = new Map<string, AcceptanceSubjectSummary>();
+    const idsByType = new Map<AcceptanceSubjectType, string[]>();
+    for (const acceptance of acceptances) {
+      const type = acceptance.subjectType as AcceptanceSubjectType;
+      const ids = idsByType.get(type) ?? [];
+      ids.push(acceptance.subjectId);
+      idsByType.set(type, ids);
+    }
+
+    try {
+      const [tasks, topics, documents] = await Promise.all([
+        new TaskModel(this.db, this.userId, this.workspaceId).resolveMany(
+          idsByType.get('task') ?? [],
+        ),
+        // Creator-facing lookup: exclude agent-share visitor topics from the
+        // subject summary batch.
+        new TopicModel(this.db, this.userId, this.workspaceId).findOwnTopicsByIds(
+          idsByType.get('topic') ?? [],
+        ),
+        new DocumentModel(this.db, this.userId, this.workspaceId).findByIds(
+          idsByType.get('document') ?? [],
+        ),
+      ]);
+      const taskTitles = new Map<string, string | null>();
+      for (const task of tasks) {
+        const title = task.name ?? task.identifier;
+        taskTitles.set(task.id, title);
+        taskTitles.set(task.identifier, title);
+      }
+      const topicTitles = new Map(topics.map((topic) => [topic.id, topic.title ?? null]));
+      const documentTitles = new Map(
+        documents.map((document) => [document.id, document.title ?? null]),
+      );
+
+      for (const acceptance of acceptances) {
+        const type = acceptance.subjectType as AcceptanceSubjectType;
+        const override = acceptance.metadata?.title;
+        const overrideTitle =
+          typeof override === 'string' && override.trim() ? override.trim() : null;
+        const title =
+          overrideTitle ??
+          (type === 'task'
+            ? taskTitles.get(acceptance.subjectId)
+            : type === 'topic'
+              ? topicTitles.get(acceptance.subjectId)
+              : type === 'document'
+                ? documentTitles.get(acceptance.subjectId)
+                : null) ??
+          null;
+        result.set(acceptance.id, { id: acceptance.subjectId, title, type });
+      }
+    } catch (error) {
+      log('resolveSubjects failed (non-fatal): %O', error);
+      for (const acceptance of acceptances) {
+        result.set(acceptance.id, {
+          id: acceptance.subjectId,
+          title: typeof acceptance.metadata?.title === 'string' ? acceptance.metadata.title : null,
+          type: acceptance.subjectType as AcceptanceSubjectType,
+        });
+      }
+    }
+    return result;
+  };
+
+  /** Resolve the projects referenced directly by acceptances in one bounded read. */
+  private resolveProjects = async (
+    acceptances: AcceptanceItem[],
+  ): Promise<Map<string, { id: string; name: string }>> => {
+    const result = new Map<string, { id: string; name: string }>();
+    const projectIds = [
+      ...new Set(acceptances.map(({ projectId }) => projectId).filter((id): id is string => !!id)),
+    ];
+    if (projectIds.length === 0) return result;
+
+    try {
+      const projects = await new ProjectModel(this.db, this.userId, this.workspaceId).findByIds(
+        projectIds,
+      );
+      const projectById = new Map(projects.map((project) => [project.id, project]));
+
+      for (const acceptance of acceptances) {
+        if (!acceptance.projectId) continue;
+        const project = projectById.get(acceptance.projectId);
+        if (project) result.set(acceptance.id, { id: project.id, name: project.name });
+      }
+    } catch (error) {
+      log('resolveProjects failed (non-fatal): %O', error);
+    }
+    return result;
+  };
+
   /**
    * The latest round's total-check count per acceptance — a cheap glance for the
    * list panel (two batched reads, never a per-row union recompute). The signed-
@@ -772,20 +1252,95 @@ export class AcceptanceService {
 
   /**
    * Recent aggregates with their subject headers — the list-panel payload.
-   * Titles resolve in parallel per row (bounded by the list limit); a deleted
+   * Titles resolve in batches by subject type; a deleted
    * subject degrades to a null title instead of dropping the row. Each row also
    * carries the latest round's check count for the panel's at-a-glance line.
    */
-  listWithSubjects = async (limit = 50) => {
-    const rows = await this.acceptanceModel.query(limit);
-    const checkCounts = await this.latestCheckCounts(rows.map((row) => row.id));
-    return Promise.all(
-      rows.map(async (row) => ({
+  listWithSubjects = async (
+    options: {
+      filter?: 'active' | 'all' | 'completed';
+      limit?: number;
+      projectId?: string;
+      q?: string;
+    } = {},
+  ) => {
+    const { filter = 'all', limit = 50, q } = options;
+    const statuses = statusesForFilter(filter);
+    const normalizedQuery = q?.trim().toLocaleLowerCase();
+
+    // A title search must span the complete owned set. Subject titles live in
+    // their source entities (task/topic/document), so resolve them before
+    // applying the result cap instead of searching only the latest page.
+    const candidates = await this.acceptanceModel.query({
+      limit: normalizedQuery ? undefined : limit,
+      statuses,
+      unbounded: Boolean(normalizedQuery),
+      ...(options.projectId ? { projectId: options.projectId } : {}),
+    });
+    const subjects = await this.resolveSubjects(candidates);
+    const withSubjects = candidates.map((row) => ({
+      row,
+      subject: subjects.get(row.id)!,
+    }));
+    const matched = normalizedQuery
+      ? withSubjects
+          .filter(({ row, subject }) =>
+            (subject.title || row.subjectId).toLocaleLowerCase().includes(normalizedQuery),
+          )
+          .slice(0, limit)
+      : withSubjects;
+    const rows = matched.map(({ row }) => row);
+    const [checkCounts, projects] = await Promise.all([
+      this.latestCheckCounts(rows.map((row) => row.id)),
+      this.resolveProjects(rows),
+    ]);
+
+    return matched.map(({ row, subject }) => ({
+      ...row,
+      checkCount: checkCounts.get(row.id) ?? null,
+      project: projects.get(row.id) ?? null,
+      subject,
+    }));
+  };
+
+  /**
+   * The paged twin of {@link listWithSubjects} — one scroll page of the list
+   * panel, newest first.
+   *
+   * Takes the same `filter` vocabulary, applied in the QUERY: a page of
+   * "in progress" is thirty in-progress rows, not thirty rows of which some
+   * happen to be in progress. Search deliberately has no paged form — a title
+   * search must span the whole owned set, which is what `listWithSubjects`
+   * already does; the panel asks that one when a query is active.
+   */
+  listPageWithSubjects = async (options: {
+    cursor?: string;
+    filter?: AcceptanceListFilter;
+    limit?: number;
+    projectId?: string;
+  }) => {
+    const { items, nextCursor } = await this.acceptanceModel.queryPage({
+      cursor: options.cursor,
+      limit: options.limit,
+      statuses: statusesForFilter(options.filter ?? 'all'),
+      ...(options.projectId ? { projectId: options.projectId } : {}),
+    });
+
+    const subjects = await this.resolveSubjects(items);
+    const [checkCounts, projects] = await Promise.all([
+      this.latestCheckCounts(items.map((row) => row.id)),
+      this.resolveProjects(items),
+    ]);
+
+    return {
+      items: items.map((row) => ({
         ...row,
         checkCount: checkCounts.get(row.id) ?? null,
-        subject: await this.resolveSubject(row),
+        project: projects.get(row.id) ?? null,
+        subject: subjects.get(row.id)!,
       })),
-    );
+      nextCursor,
+    };
   };
 
   /**

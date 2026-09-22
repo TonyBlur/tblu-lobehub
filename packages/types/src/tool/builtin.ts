@@ -1,6 +1,7 @@
 import { type ReactNode } from 'react';
 import { z } from 'zod';
 
+import { type DeviceUnavailableErrorData } from '../device';
 import { type RuntimeStepContext } from '../stepContext';
 import { type HumanInterventionConfig, type HumanInterventionPolicy } from './intervention';
 import { HumanInterventionConfigSchema, HumanInterventionPolicySchema } from './intervention';
@@ -198,6 +199,17 @@ export interface LobeChatPluginApi {
    */
   humanIntervention?: ExtendedHumanInterventionConfig;
   name: string;
+  /**
+   * Run this API's calls one after another, in the order the model emitted
+   * them, when several land in the same tool batch. Set it on APIs whose side
+   * effects are order-sensitive — posting successive chat messages — where
+   * concurrent dispatch would let the platform keep whichever arrived first.
+   * Unmarked APIs in the same batch still run concurrently.
+   *
+   * Framework-only config like `humanIntervention`: it never reaches the
+   * LLM-facing tool spec.
+   */
+  ordered?: boolean;
   parameters: Record<string, any>;
   /**
    * Control the render display behavior for tool results
@@ -222,6 +234,7 @@ export const LobeChatPluginApiSchema = z.object({
   description: z.string(),
   humanIntervention: ExtendedHumanInterventionConfigSchema.optional(),
   name: z.string(),
+  ordered: z.boolean().optional(),
   parameters: z.record(z.string(), z.any()),
   renderDisplayControl: RenderDisplayControlSchema.optional(),
   url: z.string().optional(),
@@ -289,9 +302,25 @@ export const BuiltinToolManifestSchema = z.object({
  */
 export interface BuiltinToolResolveContext {
   /**
-   * Where this run executes, mirroring the resolved `ExecutionPlan.kind`
-   * (`device` / `device-unrouted` / `sandbox` / `none`) plus `local` for the
-   * desktop in-process engine. Lets exec-capable tools (e.g. lobe-skills)
+   * IM platform the run originates from (bot conversations only). Lets platform-
+   * aware tools trim APIs the platform can't fulfil — e.g. the `lobe-message`
+   * tool drops `readMessages` on WeChat, which has no history-read API and would
+   * otherwise throw `PlatformUnsupportedError` after the model dutifully calls it.
+   */
+  botPlatform?: {
+    /** Platform id (e.g. `wechat`, `discord`). */
+    id: string;
+    /**
+     * `lobe-message` API names this platform does not support. Sourced from the
+     * platform definition (`PlatformDefinition.unsupportedMessageApis`) so the
+     * manifest trim stays in lock-step with the runtime that throws.
+     */
+    unsupportedMessageApis?: string[];
+  };
+  /**
+   * Where this run executes, derived from the resolved `ExecutionPlan`. The
+   * routed desktop-local target stays `local`; other plans mirror their `kind`
+   * (`device` / `device-unrouted` / `sandbox` / `none`). Lets exec-capable tools (e.g. lobe-skills)
    * rewrite their API descriptions per environment — most notably
    * `device-unrouted`, where the user picked their local device but it is
    * offline and commands silently fall back to the cloud sandbox. Kept as a
@@ -472,6 +501,8 @@ export interface BuiltinServerRuntimeOutput {
    */
   deferred?: boolean;
   error?: any;
+  /** Structured unavailable-device context preserved through the runtime error envelope. */
+  errorData?: DeviceUnavailableErrorData;
   state?: any;
   success: boolean;
 }
@@ -487,6 +518,8 @@ export interface BuiltinInterventionProps<Arguments = any> {
   actionsPortalTarget?: HTMLElement | null;
   apiName?: string;
   args: Arguments;
+  /** Keep the form visible but inert while a remote resolution awaits producer ACK. */
+  disabled?: boolean;
   identifier?: string;
   interactionMode?: 'approval' | 'custom';
   messageId: string;
@@ -595,6 +628,24 @@ export interface BuiltinToolContext {
    * not spawn additional sub-agents.
    */
   isSubAgent?: boolean;
+
+  /**
+   * The run executes on this machine AND its owner asked for the device sandbox
+   * (`agencyConfig.localSandbox` on a `local` target). The Local System executor
+   * forwards it to `runCommand` so the desktop confines the spawned command.
+   *
+   * Resolved by the caller that builds this context — the executor must not
+   * re-derive it, so the in-process path and the server device-proxy stay in
+   * agreement about which runs are fenced.
+   */
+  localSandbox?: boolean;
+
+  /**
+   * The fenced run may reach the package-registry allowlist
+   * (`agencyConfig.localSandboxNetwork`). Meaningless without
+   * {@link localSandbox}.
+   */
+  localSandboxNetwork?: boolean;
 
   /**
    * Tool execution context key. It is the tool message ID for locally persisted
