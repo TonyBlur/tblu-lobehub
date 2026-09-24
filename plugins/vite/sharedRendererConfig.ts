@@ -179,7 +179,10 @@ function sharedManualChunks(id: string): string | undefined {
   const dayjsMatch = id.match(/dayjs\/locale\/([^/.]+)\.js/);
   if (dayjsMatch) {
     const locale = DAYJS_LOCALE[dayjsMatch[1]];
-    if (locale) return `i18n-${locale}-ui-runtime`;
+    // Keep CommonJS dayjs initializers separate from antd's ESM locale entry.
+    // Loading dayjs first otherwise evaluates an antd facade before its shared
+    // chunk has initialized, producing "initializer is not a function".
+    if (locale) return `i18n-${locale}-date-runtime`;
   }
 
   if (

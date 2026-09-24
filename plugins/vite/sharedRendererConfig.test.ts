@@ -123,7 +123,7 @@ describe('sharedManualChunks', () => {
       'i18n-zh-CN-ui-runtime',
     );
     expect(__testing.sharedManualChunks('/repo/node_modules/dayjs/locale/zh-cn.js')).toBe(
-      'i18n-zh-CN-ui-runtime',
+      'i18n-zh-CN-date-runtime',
     );
   });
 
